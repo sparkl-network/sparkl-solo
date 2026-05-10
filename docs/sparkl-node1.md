@@ -740,3 +740,18 @@ Implement the sparkl-node1 Rust binary according to the module specifications in
 All modules must compile under cargo build --features mock-tpm. Do not implement TPM2 hardware bindings yet. The inference handler must correctly proxy streaming SSE responses from a local llama-swap or Ollama instance at http://127.0.0.1:11434 (Ollama default) or http://127.0.0.1:8000 (llama-swap default).
 
 Write integration tests in tests/integration_test.rs that spin up a mock backend (axum test server returning fake SSE), send a plaintext (unencrypted) inference request, and verify chunks arrive with valid ChunkReceipts embedded.
+
+---
+
+## Runtime test note
+
+For the active `sparkl-solo` repo, use `tests-js/` for recurring runtime checks:
+
+```bash
+cd tests-js
+yarn install
+yarn status
+yarn attestation
+yarn encrypted
+yarn tpm:suite
+```

@@ -341,3 +341,20 @@ text
 `✅ Receipt from Node 1 verifies on Node 2 using only public key (test 6)`
 
 Once all seven pass, the TPM path is fully validated on Mac. The only delta when moving to the DGX is: `nras_enabled = true`, `TCTI` points at the hardware TPM device (`/dev/tpm0` or `tabrmd`socket), and `cert_type` changes from `"swtpm"` to `"nras"`.
+
+---
+
+## JavaScript test harness
+
+This repository now includes a runnable JS harness in `tests-js/` for repeated TPM/runtime checks:
+
+```bash
+cd tests-js
+yarn install
+yarn status
+yarn attestation
+yarn encrypted
+yarn tpm:suite
+```
+
+`yarn tpm:suite` reads `dev-config/node1.toml` and `dev-config/node2.toml`, validates `/status`, `/attestation/challenge`, `/v1/models`, and cross-node `/receipts/verify`.

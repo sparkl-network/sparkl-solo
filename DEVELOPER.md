@@ -142,6 +142,19 @@ Run the two-node integration test:
 cargo test --features mock-tpm two_nodes_discover_each_other_with_separate_configs -- --nocapture
 ```
 
+## Verify with JavaScript tests
+
+Run operational checks from the `tests-js/` folder:
+
+```bash
+cd tests-js
+yarn install
+yarn status
+yarn attestation
+yarn encrypted
+yarn tpm:suite
+```
+
 ## Notes
 
 - `mock-tpm` is required for laptop/dev workflows.

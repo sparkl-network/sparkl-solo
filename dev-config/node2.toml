@@ -8,7 +8,10 @@ receipt_cadence_tokens = 50
 [network]
 listen_addrs = ["/ip4/127.0.0.1/tcp/31002"]
 inference_port = 19945
-bootstrap_peers = ["/ip4/127.0.0.1/tcp/31001/p2p/12D3KooWCvGrTAkNbjoxWoWjHMngKwV9TKHLWUyA51uF3NCX43CB"]
+bootstrap_peers = [
+  "/ip4/127.0.0.1/tcp/31001/p2p/12D3KooWCvGrTAkNbjoxWoWjHMngKwV9TKHLWUyA51uF3NCX43CB",
+  "/ip4/192.168.10.199/tcp/30333/p2p/12D3KooWFUFFDKEzHXii4yucGrfdqxN7HmAtnfrn7vNzRGC2kh96"
+]
 
 [backend]
 url = "http://127.0.0.1:1234"
