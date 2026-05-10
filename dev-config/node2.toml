@@ -16,6 +16,7 @@ bootstrap_peers = [
   # "/dns/boot.sparkl.network/tcp/52003/p2p/12D3KooWMHkKisRr7jhXUtpN1qasUwZmLZwsU8cEQ1Hb75LhS2xL"
 ]
 public_addr = []
+expose_status_detail = true
 allow_non_globals_in_dht = true
 
 [backend]

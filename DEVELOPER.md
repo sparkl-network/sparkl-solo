@@ -50,6 +50,7 @@ listen_addrs = ["/ip4/127.0.0.1/tcp/31001"]
 inference_port = 9944
 bootstrap_peers = []
 public_addr = []
+expose_status_detail = true
 allow_non_globals_in_dht = true
 
 [backend]
@@ -96,6 +97,7 @@ listen_addrs = ["/ip4/127.0.0.1/tcp/31002"]
 inference_port = 9945
 bootstrap_peers = ["/ip4/127.0.0.1/tcp/31001/p2p/<NODE1_PEER_ID>"]
 public_addr = []
+expose_status_detail = true
 allow_non_globals_in_dht = true
 
 [backend]
@@ -148,8 +150,10 @@ cargo run --features mock-tpm -- --config dev-config/node2.toml
 - Hit health/status:
   - `curl http://127.0.0.1:9944/health`
   - `curl http://127.0.0.1:9945/health`
-  - `curl http://127.0.0.1:9944/status`
-  - `curl http://127.0.0.1:9945/status`
+  - `curl http://127.0.0.1:9944/status` (minimal public readiness)
+  - `curl http://127.0.0.1:9945/status` (minimal public readiness)
+  - `curl http://127.0.0.1:9944/status/detail` (operator diagnostics)
+  - `curl http://127.0.0.1:9945/status/detail` (operator diagnostics)
 
 ## Verify with automated test
 
@@ -177,6 +181,7 @@ yarn tpm:suite
 - Config overrides are available by both CLI flags and environment variables.
   - env var format: `SPARKLE__SECTION__KEY=value`
   - example: `SPARKLE__NETWORK__INFERENCE_PORT=19944`
+  - example: `SPARKLE__NETWORK__EXPOSE_STATUS_DETAIL=true`
   - for array values, pass JSON: `SPARKLE__NETWORK__PUBLIC_ADDR='["/ip4/203.0.113.10/tcp/30333"]'`
 - `mock-tpm` is required for laptop/dev workflows.
 - Registry and settlement are disabled in these local configs.
@@ -197,6 +202,10 @@ yarn tpm:suite
   - peer id in `public_addr` is optional; if omitted, local peer id is used for DHT insertion
   - for `bootstrap_peers`, keep `/p2p/<peer-id>` present so dial targets are identity-pinned
   - these addresses are added to external swarm addresses and inserted into Kademlia on startup
+- Detailed status endpoint exposure:
+  - config: `network.expose_status_detail = false` (default)
+  - config: `network.expose_status_detail = true` to enable `/status/detail`
+  - CLI override: `--expose-status-detail true|false`
 - Substrate-style DHT filtering:
   - config: `network.allow_non_globals_in_dht = false` (default)
   - when false, private/local IPs (e.g. `127.0.0.1`, `10.0.0.0/8`, `192.168.0.0/16`) learned from peers are not inserted into DHT

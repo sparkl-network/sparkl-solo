@@ -289,10 +289,9 @@ fn is_dht_address_allowed(addr: &Multiaddr, allow_non_globals_in_dht: bool) -> b
         match proto {
             Protocol::Ip4(ip) => return is_global_ipv4(ip),
             Protocol::Ip6(ip) => return is_global_ipv6(ip),
-            Protocol::Dns(_)
-            | Protocol::Dns4(_)
-            | Protocol::Dns6(_)
-            | Protocol::Dnsaddr(_) => return true,
+            Protocol::Dns(_) | Protocol::Dns4(_) | Protocol::Dns6(_) | Protocol::Dnsaddr(_) => {
+                return true
+            }
             _ => continue,
         }
     }

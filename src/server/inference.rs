@@ -207,7 +207,11 @@ fn log_session_completion(
     if let Some(session) = sessions.get(session_id) {
         let duration_ms = session
             .ended_at
-            .map(|end| end.signed_duration_since(session.started_at).num_milliseconds().max(0))
+            .map(|end| {
+                end.signed_duration_since(session.started_at)
+                    .num_milliseconds()
+                    .max(0)
+            })
             .unwrap_or(0);
         info!(
             session_id = %session_id,

@@ -1,4 +1,6 @@
 use axum::extract::State;
+use axum::http::StatusCode;
+use axum::response::IntoResponse;
 use axum::Json;
 use chrono::Utc;
 use serde_json::{json, Value};
@@ -18,6 +20,18 @@ pub async fn health() -> Json<Value> {
 }
 
 pub async fn status(State(state): State<AppState>) -> Json<Value> {
+    let ready = state.proxy.check_health().await.is_ok();
+    Json(json!({
+        "status": "ok",
+        "ready": ready
+    }))
+}
+
+pub async fn status_detail(State(state): State<AppState>) -> impl IntoResponse {
+    if !state.config.network.expose_status_detail {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+
     let (peers_known, peers) = get_peers_snapshot(&state).await;
     let cert_type = identity::attestation_cert_type().unwrap_or("mock-software");
     let attestation = if state.config.attestation.nras_enabled {
@@ -59,6 +73,7 @@ pub async fn status(State(state): State<AppState>) -> Json<Value> {
             "enabled": state.config.settlement.enabled
         }
     }))
+    .into_response()
 }
 
 async fn get_peers_snapshot(state: &AppState) -> (usize, Vec<String>) {

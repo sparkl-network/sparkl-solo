@@ -4,7 +4,7 @@ data_dir = "./dev-data/node1"
 log_level = "info"
 mode = "solo"
 receipt_cadence_tokens = 50
-include_models = []
+include_models = ["qwen/qwen3.5-9b"]
 exclude_models = []
 
 [network]
@@ -15,6 +15,7 @@ bootstrap_peers = [
   "/dns/boot.sparkl.network/tcp/52003/p2p/12D3KooWMHkKisRr7jhXUtpN1qasUwZmLZwsU8cEQ1Hb75LhS2xL"
 ]
 public_addr = []
+expose_status_detail = true
 allow_non_globals_in_dht = true
 
 [backend]

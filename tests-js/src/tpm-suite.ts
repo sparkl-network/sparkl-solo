@@ -91,8 +91,8 @@ async function main() {
   console.log(`node2 URL from config: ${node2Url}`);
 
   const [s1, s2] = await Promise.all([
-    getJson<StatusPayload>(`${node1Url}/status`),
-    getJson<StatusPayload>(`${node2Url}/status`),
+    getJson<StatusPayload>(`${node1Url}/status/detail`),
+    getJson<StatusPayload>(`${node2Url}/status/detail`),
   ]);
   assert(s1.peer_id !== s2.peer_id, "node1 and node2 peer_id must be different");
   assert(isHex(s1.identity.x25519_pubkey, 64), "node1 x25519 pubkey must be 32-byte hex");

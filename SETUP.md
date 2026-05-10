@@ -91,13 +91,16 @@ micro_usd_per_m_output_tokens = 780
 - `node.include_models`: allow-list. If empty, all backend models are eligible.
 - `node.exclude_models`: deny-list applied after include filtering.
 - `network.listen_addrs`: libp2p listen transports (TCP + QUIC recommended).
-- `network.inference_port`: HTTP API port (`/health`, `/status`, `/v1/*`).
+- `network.inference_port`: HTTP API port (`/health`, `/status`, `/status/detail`, `/v1/*`).
 - `network.bootstrap_peers`: initial peers to dial.
 - `network.public_addr`: internet-facing multiaddrs (after port-forwarding) to advertise and inject into DHT.
   - both forms are valid:
     - without peer id: `/ip4/<ext-ip>/tcp/<ext-port>` or `/ip4/<ext-ip>/tcp/<ext-port>/ws`
     - with peer id: `/ip4/<ext-ip>/tcp/<ext-port>/p2p/<peer-id>`
   - if peer id is omitted, node uses its local peer id for DHT insertion.
+- `network.expose_status_detail`: exposes `/status/detail` diagnostics endpoint.
+  - default `false`: `/status/detail` returns `404 Not Found`.
+  - set `true` for operator tooling and local dev diagnostics.
 - `network.allow_non_globals_in_dht`: Substrate-style DHT privacy control.
   - default `false`: only global addresses are inserted into DHT.
   - set `true` for local/dev environments that rely on private or loopback ranges.
@@ -157,6 +160,7 @@ Available CLI overrides (grouped by config section):
   - `--external-ip`
   - `--bootstrap-peers` (comma-separated)
   - `--public-addr` (comma-separated)
+  - `--expose-status-detail` (`true|false`)
   - `--allow-non-globals-in-dht` (`true|false`)
 - `backend.*`
   - `--backend-url`
@@ -191,6 +195,7 @@ Environment variables are also supported through `config` crate loading:
 - Mapping example:
   - `SPARKLE__NETWORK__INFERENCE_PORT=19944`
   - `SPARKLE__BACKEND__URL=http://127.0.0.1:1234`
+  - `SPARKLE__NETWORK__EXPOSE_STATUS_DETAIL=true`
   - `SPARKLE__NETWORK__ALLOW_NON_GLOBALS_IN_DHT=false`
 
 For list values, use JSON arrays:
@@ -261,10 +266,11 @@ sudo systemctl status sparkl-solo
 ## 9) Validation checklist
 
 - `curl -s http://127.0.0.1:9944/health`
-- `curl -s http://127.0.0.1:9944/status`
+- `curl -s http://127.0.0.1:9944/status` (minimal public readiness)
+- `curl -s http://127.0.0.1:9944/status/detail` (operator diagnostics)
 - `curl -s http://127.0.0.1:9944/v1/models`
 - Confirm expected model filtering from include/exclude config.
-- Confirm peers appear in `/status` after bootstrap and discovery.
+- Confirm peers appear in `/status/detail` after bootstrap and discovery.
 - Confirm inbound connectivity on `30333/tcp` and `30333/udp`.
 
 ## 10) Security baseline

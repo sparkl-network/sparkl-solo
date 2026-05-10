@@ -58,6 +58,8 @@ pub struct NetworkConfig {
     pub bootstrap_peers: Vec<String>,
     #[serde(default)]
     pub public_addr: Vec<String>,
+    #[serde(default = "default_expose_status_detail")]
+    pub expose_status_detail: bool,
     #[serde(default = "default_allow_non_globals_in_dht")]
     pub allow_non_globals_in_dht: bool,
 }
@@ -137,5 +139,9 @@ fn default_receipt_cadence_tokens() -> u64 {
 }
 
 fn default_allow_non_globals_in_dht() -> bool {
+    false
+}
+
+fn default_expose_status_detail() -> bool {
     false
 }

@@ -31,6 +31,7 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health::health))
         .route("/status", get(health::status))
+        .route("/status/detail", get(health::status_detail))
         .route("/attestation/challenge", post(attestation::challenge))
         .route("/receipts/verify", post(receipts::verify))
         .route("/v1/models", get(models::list_models))

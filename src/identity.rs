@@ -69,8 +69,10 @@ pub async fn load_or_generate(config: &Config) -> Result<NodeIdentity> {
         )
         .context("invalid identity-secret.json")?;
         let meta: IdentityMeta = if meta_path.exists() {
-            serde_json::from_slice(&fs::read(&meta_path).context("failed to read identity-meta.json")?)
-                .context("invalid identity-meta.json")?
+            serde_json::from_slice(
+                &fs::read(&meta_path).context("failed to read identity-meta.json")?,
+            )
+            .context("invalid identity-meta.json")?
         } else {
             IdentityMeta {
                 key_source: KeySource::Software,

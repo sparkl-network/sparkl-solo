@@ -174,14 +174,14 @@ bash
 ```
 
 `# Node 1 (port 19944 from your earlier test)`  
-`curl -s http://127.0.0.1:19944/status | jq '{`  
+`curl -s http://127.0.0.1:19944/status/detail | jq '{`  
   `peer_id,`  
   `attestation,`  
   `tpm_pubkey: .identity.pubkey`  
 `}'`  
   
 `# Node 2 (whatever port you configured — likely 29944 or 19945)`  
-`curl -s http://127.0.0.1:29944/status | jq '{`  
+`curl -s http://127.0.0.1:29944/status/detail | jq '{`  
   `peer_id,`  
   `attestation,`  
   `tpm_pubkey: .identity.pubkey`  
@@ -198,12 +198,12 @@ bash
 ```
 
 `# Node 1's known peers — should include Node 2's peer_id`  
-`curl -s http://127.0.0.1:19944/status | jq '.peers_known, .peers'`  
+`curl -s http://127.0.0.1:19944/status/detail | jq '.peers_known, .peers'`  
   
 `# Node 2 should know Node 1`  
-`curl -s http://127.0.0.1:29944/status | jq '.peers_known, .peers'`
+`curl -s http://127.0.0.1:29944/status/detail | jq '.peers_known, .peers'`
 
-You already confirmed this works from your earlier test — just verify the peer_ids match what `/status` reports for each node.
+You already confirmed this works from your earlier test — just verify the peer_ids match what `/status/detail` reports for each node.
 
 ---
 
@@ -219,8 +219,8 @@ typescript
 `import { box, randomBytes } from 'tweetnacl';`  
 `import { encodeBase64 } from 'tweetnacl-util';`  
   
-`// 1. Fetch Node 1's X25519 pubkey from /status`  
-`const status = await fetch('http://127.0.0.1:19944/status').then(r => r.json());`  
+`// 1. Fetch Node 1's X25519 pubkey from /status/detail`  
+`const status = await fetch('http://127.0.0.1:19944/status/detail').then(r => r.json());`  
 `const providerPubkey = Uint8Array.from(Buffer.from(status.identity.x25519_pubkey, 'hex'));`  
   
 `// 2. Generate consumer ephemeral keypair`  
@@ -327,7 +327,7 @@ bash
   `-H "Content-Type: application/json" \`  
   `-d "{`  
     `\"receipt\": \"$RECEIPT\",`  
-    `\"provider_pubkey\": \"$(curl -s http://127.0.0.1:19944/status | jq -r .identity.ed25519_pubkey)\"`  
+    `\"provider_pubkey\": \"$(curl -s http://127.0.0.1:19944/status/detail | jq -r .identity.ed25519_pubkey)\"`  
   `}" \`  
   `| jq '{valid, reason}'`
 
@@ -341,7 +341,7 @@ Expected: `{"valid": true, "reason": "signature_ok"}`. This proves the Ed25519 
 text
 ```
 
-`✅ Both /status endpoints respond with different peer_ids`  
+`✅ Both /status/detail endpoints respond with different peer_ids`  
 `✅ peers_known > 0 on both nodes (DHT working)`  
 `✅ /v1/models returns backend model list on both nodes`  
 `✅ Unencrypted completions stream with sparkl receipts (you already have this)`  
@@ -366,4 +366,4 @@ yarn encrypted
 yarn tpm:suite
 ```
 
-`yarn tpm:suite` reads `dev-config/node1.toml` and `dev-config/node2.toml`, validates `/status`, `/attestation/challenge`, `/v1/models`, and cross-node `/receipts/verify`.
+`yarn tpm:suite` reads `dev-config/node1.toml` and `dev-config/node2.toml`, validates `/status/detail`, `/attestation/challenge`, `/v1/models`, and cross-node `/receipts/verify`.

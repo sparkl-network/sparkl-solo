@@ -12,6 +12,9 @@ exclude_models = []
 listen_addrs = ["/ip4/0.0.0.0/udp/30333/quic-v1", "/ip4/0.0.0.0/tcp/30333"]
 # list of public addresses to advertise and inject into DHT
 # public_addr = []
+# expose /status/detail endpoint with peer+identity diagnostics
+# default false: keep detailed internals private unless explicitly enabled
+expose_status_detail = false
 # inference port - ws and quic-v1 (planned)
 inference_port = 9944
 # list of bootstrap peers to dial

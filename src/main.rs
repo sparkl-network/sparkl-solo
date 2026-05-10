@@ -30,7 +30,10 @@ async fn main() -> Result<()> {
     let store = Arc::new(Store::open(&cfg.node.data_dir)?);
     let pruned_sessions = store.prune_old_sessions(Duration::from_secs(60 * 60 * 24 * 30))?;
     if pruned_sessions > 0 {
-        info!(pruned_sessions, "pruned completed sessions from local store");
+        info!(
+            pruned_sessions,
+            "pruned completed sessions from local store"
+        );
     }
     let identity = identity::load_or_generate(&cfg).await?;
     let (_swarm_handle, swarm_cmd) =
@@ -94,6 +97,7 @@ struct CliArgs {
     external_ip: Option<String>,
     bootstrap_peers: Vec<String>,
     public_addr: Vec<String>,
+    expose_status_detail: Option<bool>,
     allow_non_globals_in_dht: Option<bool>,
     backend_url: Option<String>,
     backend_health_path: Option<String>,
@@ -131,6 +135,7 @@ where
         external_ip: None,
         bootstrap_peers: Vec::new(),
         public_addr: Vec::new(),
+        expose_status_detail: None,
         allow_non_globals_in_dht: None,
         backend_url: None,
         backend_health_path: None,
@@ -168,7 +173,9 @@ where
                 out.receipt_cadence_tokens = Some(parsed.max(1));
             }
             "--name" => out.node_name = Some(required_value(&mut args, "--name")?),
-            "--data-dir" => out.data_dir = Some(PathBuf::from(required_value(&mut args, "--data-dir")?)),
+            "--data-dir" => {
+                out.data_dir = Some(PathBuf::from(required_value(&mut args, "--data-dir")?))
+            }
             "--log-level" => out.log_level = Some(required_value(&mut args, "--log-level")?),
             "--mode" => out.mode = Some(required_value(&mut args, "--mode")?),
             "--include-models" => {
@@ -183,7 +190,9 @@ where
                 let value = required_value(&mut args, "--listen-addrs")?;
                 out.listen_addrs.extend(parse_model_list(&value));
             }
-            "--inference-port" => out.inference_port = Some(parse_u16_flag(&mut args, "--inference-port")?),
+            "--inference-port" => {
+                out.inference_port = Some(parse_u16_flag(&mut args, "--inference-port")?)
+            }
             "--external-ip" => out.external_ip = Some(required_value(&mut args, "--external-ip")?),
             "--bootstrap-peers" => {
                 let value = required_value(&mut args, "--bootstrap-peers")?;
@@ -193,25 +202,56 @@ where
                 let value = required_value(&mut args, "--public-addr")?;
                 out.public_addr.extend(parse_model_list(&value));
             }
+            "--expose-status-detail" => {
+                out.expose_status_detail =
+                    Some(parse_bool_flag(&mut args, "--expose-status-detail")?);
+            }
             "--allow-non-globals-in-dht" => {
-                out.allow_non_globals_in_dht = Some(parse_bool_flag(&mut args, "--allow-non-globals-in-dht")?);
+                out.allow_non_globals_in_dht =
+                    Some(parse_bool_flag(&mut args, "--allow-non-globals-in-dht")?);
             }
             "--backend-url" => out.backend_url = Some(required_value(&mut args, "--backend-url")?),
-            "--backend-health-path" => out.backend_health_path = Some(required_value(&mut args, "--backend-health-path")?),
-            "--backend-models-path" => out.backend_models_path = Some(required_value(&mut args, "--backend-models-path")?),
-            "--backend-timeout-secs" => out.backend_timeout_secs = Some(parse_u64_flag(&mut args, "--backend-timeout-secs")?),
+            "--backend-health-path" => {
+                out.backend_health_path = Some(required_value(&mut args, "--backend-health-path")?)
+            }
+            "--backend-models-path" => {
+                out.backend_models_path = Some(required_value(&mut args, "--backend-models-path")?)
+            }
+            "--backend-timeout-secs" => {
+                out.backend_timeout_secs =
+                    Some(parse_u64_flag(&mut args, "--backend-timeout-secs")?)
+            }
             "--nras-url" => out.nras_url = Some(required_value(&mut args, "--nras-url")?),
-            "--nras-enabled" => out.nras_enabled = Some(parse_bool_flag(&mut args, "--nras-enabled")?),
-            "--cert-ttl-days" => out.cert_ttl_days = Some(parse_u64_flag(&mut args, "--cert-ttl-days")?),
-            "--registry-url" => out.registry_url = Some(required_value(&mut args, "--registry-url")?),
-            "--registry-heartbeat-secs" => out.registry_heartbeat_secs = Some(parse_u64_flag(&mut args, "--registry-heartbeat-secs")?),
-            "--registry-enabled" => out.registry_enabled = Some(parse_bool_flag(&mut args, "--registry-enabled")?),
-            "--settlement-epoch-secs" => out.settlement_epoch_secs = Some(parse_u64_flag(&mut args, "--settlement-epoch-secs")?),
+            "--nras-enabled" => {
+                out.nras_enabled = Some(parse_bool_flag(&mut args, "--nras-enabled")?)
+            }
+            "--cert-ttl-days" => {
+                out.cert_ttl_days = Some(parse_u64_flag(&mut args, "--cert-ttl-days")?)
+            }
+            "--registry-url" => {
+                out.registry_url = Some(required_value(&mut args, "--registry-url")?)
+            }
+            "--registry-heartbeat-secs" => {
+                out.registry_heartbeat_secs =
+                    Some(parse_u64_flag(&mut args, "--registry-heartbeat-secs")?)
+            }
+            "--registry-enabled" => {
+                out.registry_enabled = Some(parse_bool_flag(&mut args, "--registry-enabled")?)
+            }
+            "--settlement-epoch-secs" => {
+                out.settlement_epoch_secs =
+                    Some(parse_u64_flag(&mut args, "--settlement-epoch-secs")?)
+            }
             "--evm-rpc-url" => out.evm_rpc_url = Some(required_value(&mut args, "--evm-rpc-url")?),
-            "--escrow-contract" => out.escrow_contract = Some(required_value(&mut args, "--escrow-contract")?),
-            "--settlement-enabled" => out.settlement_enabled = Some(parse_bool_flag(&mut args, "--settlement-enabled")?),
+            "--escrow-contract" => {
+                out.escrow_contract = Some(required_value(&mut args, "--escrow-contract")?)
+            }
+            "--settlement-enabled" => {
+                out.settlement_enabled = Some(parse_bool_flag(&mut args, "--settlement-enabled")?)
+            }
             "--price-input-micro-usd-per-m" => {
-                out.price_input_micro_usd_per_m = Some(parse_u64_flag(&mut args, "--price-input-micro-usd-per-m")?);
+                out.price_input_micro_usd_per_m =
+                    Some(parse_u64_flag(&mut args, "--price-input-micro-usd-per-m")?);
             }
             "--price-output-micro-usd-per-m" => {
                 out.price_output_micro_usd_per_m =
@@ -311,6 +351,9 @@ fn apply_cli_overrides(cfg: &mut config::Config, cli: &CliArgs) -> Result<()> {
     }
     if !cli.public_addr.is_empty() {
         cfg.network.public_addr = cli.public_addr.clone();
+    }
+    if let Some(v) = cli.expose_status_detail {
+        cfg.network.expose_status_detail = v;
     }
     if let Some(v) = cli.allow_non_globals_in_dht {
         cfg.network.allow_non_globals_in_dht = v;

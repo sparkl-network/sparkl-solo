@@ -79,6 +79,7 @@ fn test_config(backend_addr: SocketAddr, temp_dir: &TempDir) -> Config {
             external_ip: None,
             bootstrap_peers: vec![],
             public_addr: vec![],
+            expose_status_detail: false,
             allow_non_globals_in_dht: true,
         },
         backend: BackendConfig {
@@ -149,6 +150,100 @@ async fn assert_receipts_present(resp: reqwest::Response) {
         verified >= 2,
         "expected at least two receipt-bearing chunks"
     );
+}
+
+#[tokio::test]
+#[serial]
+async fn status_exposes_minimal_public_fields() {
+    let backend = Router::new()
+        .route("/health", get(backend_health))
+        .route("/v1/models", get(backend_models))
+        .route("/v1/chat/completions", post(backend_chat));
+    let backend_addr = spawn(backend).await;
+
+    let temp_dir = TempDir::new().expect("tempdir");
+    let cfg = test_config(backend_addr, &temp_dir);
+
+    let identity = identity::load_or_generate(&cfg).await.expect("identity");
+    let store = Arc::new(Store::open(&cfg.node.data_dir).expect("store"));
+    let sessions = Arc::new(SessionManager::new(store));
+    let proxy = Arc::new(BackendProxy::new(&cfg.backend).expect("proxy"));
+
+    let app_state = AppState {
+        config: cfg.clone(),
+        identity,
+        proxy,
+        sessions,
+        swarm_cmd: None,
+        started_at: Utc::now(),
+    };
+    let node_addr = spawn(server::router(app_state)).await;
+
+    let client = Client::new();
+    let resp = client
+        .get(format!("http://{}/status", node_addr))
+        .send()
+        .await
+        .expect("send");
+    assert!(resp.status().is_success());
+    let body: Value = resp.json().await.expect("json body");
+    assert_eq!(body.get("status").and_then(Value::as_str), Some("ok"));
+    assert!(body.get("ready").and_then(Value::as_bool).is_some());
+    assert!(
+        body.get("peer_id").is_none(),
+        "public /status must not expose peer details"
+    );
+    assert!(
+        body.get("identity").is_none(),
+        "public /status must not expose identity keys"
+    );
+
+    let detail_resp = client
+        .get(format!("http://{}/status/detail", node_addr))
+        .send()
+        .await
+        .expect("send");
+    assert_eq!(detail_resp.status(), reqwest::StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+#[serial]
+async fn status_detail_is_available_when_enabled() {
+    let backend = Router::new()
+        .route("/health", get(backend_health))
+        .route("/v1/models", get(backend_models))
+        .route("/v1/chat/completions", post(backend_chat));
+    let backend_addr = spawn(backend).await;
+
+    let temp_dir = TempDir::new().expect("tempdir");
+    let mut cfg = test_config(backend_addr, &temp_dir);
+    cfg.network.expose_status_detail = true;
+
+    let identity = identity::load_or_generate(&cfg).await.expect("identity");
+    let store = Arc::new(Store::open(&cfg.node.data_dir).expect("store"));
+    let sessions = Arc::new(SessionManager::new(store));
+    let proxy = Arc::new(BackendProxy::new(&cfg.backend).expect("proxy"));
+
+    let app_state = AppState {
+        config: cfg.clone(),
+        identity,
+        proxy,
+        sessions,
+        swarm_cmd: None,
+        started_at: Utc::now(),
+    };
+    let node_addr = spawn(server::router(app_state)).await;
+
+    let client = Client::new();
+    let resp = client
+        .get(format!("http://{}/status/detail", node_addr))
+        .send()
+        .await
+        .expect("send");
+    assert!(resp.status().is_success());
+    let body: Value = resp.json().await.expect("json body");
+    assert!(body.get("peer_id").and_then(Value::as_str).is_some());
+    assert!(body.get("identity").is_some());
 }
 
 #[tokio::test]

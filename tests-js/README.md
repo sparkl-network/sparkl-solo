@@ -40,7 +40,7 @@ yarn tpm:suite
   - `../dev-config/node2.toml`
 - Checks:
   - TPM socket file exists (`/tmp/sparkl-tpm.sock`)
-  - `/status` identity fields + distinct peer IDs
+  - `/status/detail` identity fields + distinct peer IDs
   - `/attestation/challenge`
   - `/v1/models`
   - cross-node `/receipts/verify` using a receipt from node1 stream

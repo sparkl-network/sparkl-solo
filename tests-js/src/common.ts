@@ -13,9 +13,9 @@ export const NODE2_URL = process.env.NODE2_URL ?? "http://127.0.0.1:19945";
 export const MODEL = process.env.MODEL ?? "qwen/qwen3.5-9b";
 
 export async function getStatus(baseUrl: string): Promise<NodeStatus> {
-  const resp = await fetch(`${baseUrl}/status`);
+  const resp = await fetch(`${baseUrl}/status/detail`);
   if (!resp.ok) {
-    throw new Error(`status failed (${resp.status}) for ${baseUrl}`);
+    throw new Error(`status/detail failed (${resp.status}) for ${baseUrl}`);
   }
   return (await resp.json()) as NodeStatus;
 }
