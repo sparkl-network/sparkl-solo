@@ -51,6 +51,10 @@ Progress is mapped to the multi-phase plan in `docs/Sparkle  Decentralised Priva
 
 - [x] Encrypted request handling (`epk` + `ciphertext`) in inference path
 - [x] Receipt verification endpoint (`/receipts/verify`) and attestation challenge endpoint (`/attestation/challenge`)
+- [x] Configurable model visibility controls (`include_models` then `exclude_models`)
+- [x] Session accounting now uses real token pricing (`amount_micro_usd`)
+- [x] Settlement epoch batches now compute a receipts root (non-zero placeholder removed)
+- [x] Session completion logs include tokens, receipts, earnings, and duration
 - [ ] Live NRAS verification and production attestation certificate flow
 - [ ] Unicity registry heartbeats/state transitions beyond local stub behavior
 - [ ] On-chain escrow/payment settlement integration beyond disabled local config
@@ -60,8 +64,15 @@ Progress is mapped to the multi-phase plan in `docs/Sparkle  Decentralised Priva
 - [x] Real `libp2p` swarm with Identify/Ping/mDNS/Kademlia
 - [x] Persistent peer identity on disk across restarts
 - [x] Protocol-aware peer filtering (`sparkl/*`) for known-peer reporting
+- [x] Recovery test coverage for active sessions after restart
 - [ ] Wider multi-peer interoperability validation beyond current local/test-peer runs
 - [ ] SDK-level trustless discovery and direct consumer P2P flows
+
+### Operations and delivery
+
+- [x] `SETUP.md` production runbook (config + port forwarding)
+- [x] Expanded macOS TPM guidance in `DEVELOPER.md` and `docs/TPM-development.md`
+- [ ] GitHub Actions CI workflow activation (requires token/repo permission for workflow updates)
 
 ### TBC
 - Oracle design for pricing
@@ -69,7 +80,6 @@ Progress is mapped to the multi-phase plan in `docs/Sparkle  Decentralised Priva
 - Integration with ZKP layer for Double-spend protection
 - Dashboard and UI
 - Substrate solo chain
-- 
 
 ## How to contribute
 
