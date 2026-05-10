@@ -1,0 +1,22 @@
+{
+  "name": "sparkl-solo-tests-js",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "status": "tsx src/check-status.ts",
+    "attestation": "tsx src/attestation-challenge.ts",
+    "encrypted": "tsx src/encrypted-stream.ts",
+    "tpm:suite": "tsx src/tpm-suite.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.29",
+    "tsx": "^4.20.6",
+    "typescript": "^5.8.3"
+  },
+  "dependencies": {
+    "tweetnacl": "^1.0.3",
+    "tweetnacl-util": "^0.15.1"
+  },
+  "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
+}
