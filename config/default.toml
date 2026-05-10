@@ -10,8 +10,12 @@ exclude_models = []
 [network]
 listen_addrs = ["/ip4/0.0.0.0/udp/30333/quic-v1", "/ip4/0.0.0.0/tcp/30333"]
 inference_port = 9944
-bootstrap_peers = []
+bootstrap_peers = [
+  "/dns/boot.sparkl.network/tcp/51993/p2p/12D3KooWMr6gHBiC55poCBDRV9NcXcEfFjv4jEzA9s3cM81RyYmX",
+  "/dns/boot.sparkl.network/tcp/52003/p2p/12D3KooWMHkKisRr7jhXUtpN1qasUwZmLZwsU8cEQ1Hb75LhS2xL"
+]
 public_addr = []
+allow_non_globals_in_dht = false
 
 [backend]
 url = "http://127.0.0.1:11434"

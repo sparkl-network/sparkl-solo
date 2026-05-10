@@ -79,6 +79,7 @@ fn test_config(backend_addr: SocketAddr, temp_dir: &TempDir) -> Config {
             external_ip: None,
             bootstrap_peers: vec![],
             public_addr: vec![],
+            allow_non_globals_in_dht: true,
         },
         backend: BackendConfig {
             url: format!("http://{}", backend_addr),

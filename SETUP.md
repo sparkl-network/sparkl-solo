@@ -51,6 +51,7 @@ public_addr = [
   "/ip4/YOUR.PUBLIC.IP/tcp/443/ws",
   "/ip4/YOUR.PUBLIC.IP/tcp/30333/p2p/YOUR_PEER_ID"
 ]
+allow_non_globals_in_dht = false
 external_ip = "YOUR.PUBLIC.IP.ADDR"
 
 [backend]
@@ -97,6 +98,9 @@ micro_usd_per_m_output_tokens = 780
     - without peer id: `/ip4/<ext-ip>/tcp/<ext-port>` or `/ip4/<ext-ip>/tcp/<ext-port>/ws`
     - with peer id: `/ip4/<ext-ip>/tcp/<ext-port>/p2p/<peer-id>`
   - if peer id is omitted, node uses its local peer id for DHT insertion.
+- `network.allow_non_globals_in_dht`: Substrate-style DHT privacy control.
+  - default `false`: only global addresses are inserted into DHT.
+  - set `true` for local/dev environments that rely on private or loopback ranges.
 - `network.external_ip`: advertised public IP (recommended behind NAT).
 - `backend.url`: upstream inference backend base URL.
 - `backend.health_path`: backend health endpoint.
@@ -137,13 +141,64 @@ Run with config:
 ./target/release/sparkl-solo --config config/prod.toml
 ```
 
-Available CLI overrides:
+Available CLI overrides (grouped by config section):
 
-- `--receipt-cadence NUM_TOKS`
-- `--include-models model/a,model/b`
-- `--exclude-models model/x,model/y`
+- `node.*`
+  - `--name`
+  - `--data-dir`
+  - `--log-level`
+  - `--mode` (`solo|farm`)
+  - `--receipt-cadence`
+  - `--include-models` (comma-separated)
+  - `--exclude-models` (comma-separated)
+- `network.*`
+  - `--listen-addrs` (comma-separated)
+  - `--inference-port`
+  - `--external-ip`
+  - `--bootstrap-peers` (comma-separated)
+  - `--public-addr` (comma-separated)
+  - `--allow-non-globals-in-dht` (`true|false`)
+- `backend.*`
+  - `--backend-url`
+  - `--backend-health-path`
+  - `--backend-models-path`
+  - `--backend-timeout-secs`
+- `attestation.*`
+  - `--nras-url`
+  - `--nras-enabled` (`true|false`)
+  - `--cert-ttl-days`
+- `registry.*`
+  - `--registry-url`
+  - `--registry-heartbeat-secs`
+  - `--registry-enabled` (`true|false`)
+- `settlement.*`
+  - `--settlement-epoch-secs`
+  - `--evm-rpc-url`
+  - `--escrow-contract`
+  - `--settlement-enabled` (`true|false`)
+- `pricing.*`
+  - `--price-input-micro-usd-per-m`
+  - `--price-output-micro-usd-per-m`
 
-If provided, CLI model lists override config model lists.
+If provided, CLI values override config file values.
+
+### Environment variable overrides
+
+Environment variables are also supported through `config` crate loading:
+
+- Prefix: `SPARKLE__`
+- Path separator: double underscore `__`
+- Mapping example:
+  - `SPARKLE__NETWORK__INFERENCE_PORT=19944`
+  - `SPARKLE__BACKEND__URL=http://127.0.0.1:1234`
+  - `SPARKLE__NETWORK__ALLOW_NON_GLOBALS_IN_DHT=false`
+
+For list values, use JSON arrays:
+
+```bash
+export SPARKLE__NETWORK__PUBLIC_ADDR='["/ip4/203.0.113.10/tcp/30333","/ip4/203.0.113.10/tcp/443/ws"]'
+export SPARKLE__NETWORK__BOOTSTRAP_PEERS='["/dns/boot.sparkl.network/tcp/51993/p2p/12D3KooW..."]'
+```
 
 ## 7) Port forwarding and firewall
 

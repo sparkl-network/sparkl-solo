@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use std::fs;
+use std::net::{IpAddr, Ipv4Addr};
 use std::path::Path;
 
 use anyhow::{anyhow, Context, Result};
@@ -98,6 +99,7 @@ pub async fn start_swarm(
         listen_addrs: config.listen_addrs.clone(),
     };
     let local_peer_id_str = handle.peer_id.clone();
+    let allow_non_globals_in_dht = config.allow_non_globals_in_dht;
 
     tokio::spawn(async move {
         let mut known_peers: HashSet<PeerId> = HashSet::new();
@@ -143,6 +145,15 @@ pub async fn start_swarm(
                                 if is_sparkl_peer {
                                     known_peers.insert(remote_peer_id);
                                     for addr in info.listen_addrs {
+                                        if !is_dht_address_allowed(&addr, allow_non_globals_in_dht) {
+                                            info!(
+                                                local_peer=%local_peer_id_str,
+                                                identified_peer=%remote_peer_id,
+                                                %addr,
+                                                "ignored non-global address for DHT"
+                                            );
+                                            continue;
+                                        }
                                         info!(
                                             local_peer=%local_peer_id_str,
                                             identified_peer=%remote_peer_id,
@@ -267,6 +278,45 @@ fn strip_peer_component(addr: &Multiaddr) -> Multiaddr {
         }
     }
     out
+}
+
+fn is_dht_address_allowed(addr: &Multiaddr, allow_non_globals_in_dht: bool) -> bool {
+    if allow_non_globals_in_dht {
+        return true;
+    }
+
+    for proto in addr.iter() {
+        match proto {
+            Protocol::Ip4(ip) => return is_global_ipv4(ip),
+            Protocol::Ip6(ip) => return is_global_ipv6(ip),
+            Protocol::Dns(_)
+            | Protocol::Dns4(_)
+            | Protocol::Dns6(_)
+            | Protocol::Dnsaddr(_) => return true,
+            _ => continue,
+        }
+    }
+    true
+}
+
+fn is_global_ipv4(ip: Ipv4Addr) -> bool {
+    let octets = ip.octets();
+    let is_shared_cgnat = octets[0] == 100 && (octets[1] & 0b1100_0000) == 0b0100_0000;
+    !(ip.is_unspecified()
+        || ip.is_loopback()
+        || ip.is_private()
+        || ip.is_link_local()
+        || ip.is_broadcast()
+        || ip.is_documentation()
+        || is_shared_cgnat
+        || octets[0] == 0)
+}
+
+fn is_global_ipv6(ip: std::net::Ipv6Addr) -> bool {
+    let ip = IpAddr::V6(ip);
+    !(ip.is_unspecified()
+        || ip.is_loopback()
+        || matches!(ip, IpAddr::V6(v6) if v6.is_unique_local() || v6.is_unicast_link_local() || v6.is_multicast()))
 }
 
 #[cfg(unix)]

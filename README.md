@@ -25,6 +25,25 @@ Planned: farm or gateway node, for running one sparkl-node and multiple provider
 
 Config defaults are in `config/default.toml`, and can be overridden with env vars prefixed by `SPARKLE__`.
 
+## Configuration Overrides
+
+You can override config with either CLI flags or environment variables.
+
+- **CLI precedence:** CLI flags override file values loaded from `--config`.
+- **Env var prefix:** `SPARKLE__SECTION__KEY`
+  - example: `SPARKLE__NETWORK__INFERENCE_PORT=19944`
+- **Arrays via env vars:** use JSON array strings
+  - example: `SPARKLE__NETWORK__PUBLIC_ADDR='["/ip4/1.2.3.4/tcp/30333"]'`
+
+Common CLI examples:
+
+- `--config dev-config/node1.toml`
+- `--receipt-cadence 50`
+- `--include-models qwen/qwen3.5-9b,meta-llama/llama-3.1-8b-instruct`
+- `--exclude-models internal/research-model`
+- `--public-addr /ip4/203.0.113.10/tcp/30333,/ip4/203.0.113.10/tcp/443/ws`
+- `--allow-non-globals-in-dht false`
+
 ## JavaScript Operational Tests
 
 Use the `tests-js/` harness for periodic runtime checks against live nodes:

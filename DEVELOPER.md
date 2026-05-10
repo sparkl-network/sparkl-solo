@@ -50,6 +50,7 @@ listen_addrs = ["/ip4/127.0.0.1/tcp/31001"]
 inference_port = 9944
 bootstrap_peers = []
 public_addr = []
+allow_non_globals_in_dht = true
 
 [backend]
 url = "http://127.0.0.1:11434"
@@ -95,6 +96,7 @@ listen_addrs = ["/ip4/127.0.0.1/tcp/31002"]
 inference_port = 9945
 bootstrap_peers = ["/ip4/127.0.0.1/tcp/31001/p2p/<NODE1_PEER_ID>"]
 public_addr = []
+allow_non_globals_in_dht = true
 
 [backend]
 url = "http://127.0.0.1:11434"
@@ -172,6 +174,10 @@ yarn tpm:suite
 
 ## Notes
 
+- Config overrides are available by both CLI flags and environment variables.
+  - env var format: `SPARKLE__SECTION__KEY=value`
+  - example: `SPARKLE__NETWORK__INFERENCE_PORT=19944`
+  - for array values, pass JSON: `SPARKLE__NETWORK__PUBLIC_ADDR='["/ip4/203.0.113.10/tcp/30333"]'`
 - `mock-tpm` is required for laptop/dev workflows.
 - Registry and settlement are disabled in these local configs.
 - If using `llama-swap` on `:8000`, set `backend.url = "http://127.0.0.1:8000"`.
@@ -191,3 +197,7 @@ yarn tpm:suite
   - peer id in `public_addr` is optional; if omitted, local peer id is used for DHT insertion
   - for `bootstrap_peers`, keep `/p2p/<peer-id>` present so dial targets are identity-pinned
   - these addresses are added to external swarm addresses and inserted into Kademlia on startup
+- Substrate-style DHT filtering:
+  - config: `network.allow_non_globals_in_dht = false` (default)
+  - when false, private/local IPs (e.g. `127.0.0.1`, `10.0.0.0/8`, `192.168.0.0/16`) learned from peers are not inserted into DHT
+  - set true for local/dev networks where non-global addresses are expected

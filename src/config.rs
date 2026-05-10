@@ -58,6 +58,8 @@ pub struct NetworkConfig {
     pub bootstrap_peers: Vec<String>,
     #[serde(default)]
     pub public_addr: Vec<String>,
+    #[serde(default = "default_allow_non_globals_in_dht")]
+    pub allow_non_globals_in_dht: bool,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -132,4 +134,8 @@ fn expand_home(path: PathBuf) -> PathBuf {
 
 fn default_receipt_cadence_tokens() -> u64 {
     50
+}
+
+fn default_allow_non_globals_in_dht() -> bool {
+    false
 }
