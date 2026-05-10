@@ -80,6 +80,10 @@ Progress is mapped to the multi-phase plan in `docs/Sparkle  Decentralised Priva
 - Integration with ZKP layer for Double-spend protection
 - Dashboard and UI
 - Substrate solo chain
+- quic-ws support
+  - Per-stream loss recovery — one stalled token doesn't affect other concurrent sessions
+  - 0-RTT resumption — meaningful for short-context requests where connection setup is a significant fraction of latency
+  - Native multiplexing — multiple concurrent streaming sessions over one QUIC connection
 
 ## How to contribute
 

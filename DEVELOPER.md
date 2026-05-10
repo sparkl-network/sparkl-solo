@@ -49,6 +49,7 @@ receipt_cadence_tokens = 50
 listen_addrs = ["/ip4/127.0.0.1/tcp/31001"]
 inference_port = 9944
 bootstrap_peers = []
+public_addr = []
 
 [backend]
 url = "http://127.0.0.1:11434"
@@ -93,6 +94,7 @@ receipt_cadence_tokens = 50
 listen_addrs = ["/ip4/127.0.0.1/tcp/31002"]
 inference_port = 9945
 bootstrap_peers = ["/ip4/127.0.0.1/tcp/31001/p2p/<NODE1_PEER_ID>"]
+public_addr = []
 
 [backend]
 url = "http://127.0.0.1:11434"
@@ -184,3 +186,8 @@ yarn tpm:suite
   - config block-list: `node.exclude_models = ["model/private"]`
   - CLI overrides: `--include-models model/a,model/b` and `--exclude-models model/private`
   - filtering order: include first (or all models when include is empty), then exclude
+- You can advertise internet-facing node addresses for DHT propagation:
+  - config: `network.public_addr = ["/ip4/<ext-ip>/tcp/<ext-port>", "/ip4/<ext-ip>/tcp/<ext-port2>/ws", "/ip4/<ext-ip>/tcp/<ext-port>/p2p/<peer-id>"]`
+  - peer id in `public_addr` is optional; if omitted, local peer id is used for DHT insertion
+  - for `bootstrap_peers`, keep `/p2p/<peer-id>` present so dial targets are identity-pinned
+  - these addresses are added to external swarm addresses and inserted into Kademlia on startup

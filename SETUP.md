@@ -46,6 +46,11 @@ exclude_models = []
 listen_addrs = ["/ip4/0.0.0.0/udp/30333/quic-v1", "/ip4/0.0.0.0/tcp/30333"]
 inference_port = 9944
 bootstrap_peers = []
+public_addr = [
+  "/ip4/YOUR.PUBLIC.IP/tcp/30333",
+  "/ip4/YOUR.PUBLIC.IP/tcp/443/ws",
+  "/ip4/YOUR.PUBLIC.IP/tcp/30333/p2p/YOUR_PEER_ID"
+]
 external_ip = "YOUR.PUBLIC.IP.ADDR"
 
 [backend]
@@ -87,6 +92,11 @@ micro_usd_per_m_output_tokens = 780
 - `network.listen_addrs`: libp2p listen transports (TCP + QUIC recommended).
 - `network.inference_port`: HTTP API port (`/health`, `/status`, `/v1/*`).
 - `network.bootstrap_peers`: initial peers to dial.
+- `network.public_addr`: internet-facing multiaddrs (after port-forwarding) to advertise and inject into DHT.
+  - both forms are valid:
+    - without peer id: `/ip4/<ext-ip>/tcp/<ext-port>` or `/ip4/<ext-ip>/tcp/<ext-port>/ws`
+    - with peer id: `/ip4/<ext-ip>/tcp/<ext-port>/p2p/<peer-id>`
+  - if peer id is omitted, node uses its local peer id for DHT insertion.
 - `network.external_ip`: advertised public IP (recommended behind NAT).
 - `backend.url`: upstream inference backend base URL.
 - `backend.health_path`: backend health endpoint.

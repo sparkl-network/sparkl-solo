@@ -4,6 +4,7 @@ use std::path::Path;
 
 use anyhow::{anyhow, Context, Result};
 use futures::StreamExt;
+use libp2p::multiaddr::Protocol;
 use libp2p::swarm::SwarmEvent;
 use libp2p::{mdns, Multiaddr, PeerId, SwarmBuilder};
 use tokio::sync::mpsc;
@@ -67,6 +68,28 @@ pub async fn start_swarm(
                 }
             }
             Err(err) => warn!(%err, %peer, "invalid bootstrap address"),
+        }
+    }
+
+    for public_addr in &config.public_addr {
+        match public_addr.parse::<Multiaddr>() {
+            Ok(parsed) => {
+                let target_peer = peer_id_from_addr(&parsed).unwrap_or(local_peer_id);
+                let kad_addr = strip_peer_component(&parsed);
+                swarm
+                    .behaviour_mut()
+                    .kademlia
+                    .add_address(&target_peer, kad_addr.clone());
+                swarm.add_external_address(parsed.clone());
+                info!(
+                    local_peer=%local_peer_id,
+                    target_peer=%target_peer,
+                    %parsed,
+                    %kad_addr,
+                    "registered public address for DHT and external advertisement"
+                );
+            }
+            Err(err) => warn!(%err, %public_addr, "invalid public address"),
         }
     }
 
@@ -224,6 +247,26 @@ fn persist_peer_id_details(data_dir: &Path, peer_id: PeerId) -> Result<()> {
     let peer_id_path = network_dir.join("peer_id");
     fs::write(&peer_id_path, format!("{peer_id}\n")).context("failed to persist peer id")?;
     Ok(())
+}
+
+fn peer_id_from_addr(addr: &Multiaddr) -> Option<PeerId> {
+    addr.iter().find_map(|p| {
+        if let Protocol::P2p(peer_id) = p {
+            Some(peer_id)
+        } else {
+            None
+        }
+    })
+}
+
+fn strip_peer_component(addr: &Multiaddr) -> Multiaddr {
+    let mut out = Multiaddr::empty();
+    for proto in addr.iter() {
+        if !matches!(proto, Protocol::P2p(_)) {
+            out.push(proto);
+        }
+    }
+    out
 }
 
 #[cfg(unix)]

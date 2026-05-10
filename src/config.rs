@@ -56,6 +56,8 @@ pub struct NetworkConfig {
     pub inference_port: u16,
     pub external_ip: Option<String>,
     pub bootstrap_peers: Vec<String>,
+    #[serde(default)]
+    pub public_addr: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
