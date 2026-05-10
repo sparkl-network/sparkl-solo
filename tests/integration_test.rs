@@ -77,6 +77,7 @@ fn test_config(backend_addr: SocketAddr, temp_dir: &TempDir) -> Config {
             listen_addrs: vec![],
             inference_port: 0,
             external_ip: None,
+            public_addrs: vec![],
             bootstrap_peers: vec![],
             public_addr: vec![],
             expose_status_detail: false,
