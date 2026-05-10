@@ -37,3 +37,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/chat/completions", post(inference::chat_completions))
         .with_state(state)
 }
+
+pub fn is_model_allowed(state: &AppState, model_id: &str) -> bool {
+    state.config.node.is_model_allowed(model_id)
+}

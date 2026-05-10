@@ -10,7 +10,7 @@ use axum::Json;
 use base64::Engine;
 use futures::StreamExt;
 use serde_json::{json, Value};
-use tracing::warn;
+use tracing::{info, warn};
 
 use crate::identity;
 use crate::receipts::{encode_receipt_for_sse, generate_receipt, hash_chunk, provider_identity};
@@ -54,6 +54,10 @@ pub async fn chat_completions(
                 .into_response();
         }
     };
+    let available_models = available_models
+        .into_iter()
+        .filter(|m| super::is_model_allowed(&state, &m.id))
+        .collect::<Vec<_>>();
     if !available_models.iter().any(|m| m.id == model) {
         return (
             StatusCode::BAD_REQUEST,
@@ -68,6 +72,7 @@ pub async fn chat_completions(
     let proxy = state.proxy.clone();
     let sessions = state.sessions.clone();
     let receipt_cadence = state.config.node.receipt_cadence_tokens.max(1);
+    let output_price_per_m = state.config.pricing.micro_usd_per_m_output_tokens;
 
     let event_stream = stream! {
         let session_id = sessions.open(&model, consumer_epk);
@@ -105,6 +110,7 @@ pub async fn chat_completions(
                         let payload = line.trim_start_matches("data: ").trim();
                         if payload == "[DONE]" {
                             sessions.close(session_id, SessionState::Completed);
+                            log_session_completion(&sessions, session_id, &model);
                             yield Ok::<Event, Infallible>(Event::default().data("[DONE]"));
                             return;
                         }
@@ -117,7 +123,7 @@ pub async fn chat_completions(
                             }
                         };
                         let content_hash = hash_chunk(payload.as_bytes());
-                        sessions.record_chunk(session_id, 1, content_hash);
+                        sessions.record_chunk(session_id, 1, content_hash, output_price_per_m);
 
                         if let Some(session) = sessions.get(session_id) {
                             if session.tokens_output % receipt_cadence == 0 {
@@ -150,6 +156,7 @@ pub async fn chat_completions(
         }
 
         sessions.close(session_id, SessionState::Completed);
+        log_session_completion(&sessions, session_id, &model);
         yield Ok::<Event, Infallible>(Event::default().data("[DONE]"));
     };
 
@@ -190,4 +197,26 @@ async fn decrypt_request_if_needed(request: Value) -> anyhow::Result<(Value, Opt
     let parsed =
         serde_json::from_slice::<Value>(&plaintext).context("decrypted body is not valid json")?;
     Ok((parsed, Some(epk)))
+}
+
+fn log_session_completion(
+    sessions: &crate::session::SessionManager,
+    session_id: uuid::Uuid,
+    model: &str,
+) {
+    if let Some(session) = sessions.get(session_id) {
+        let duration_ms = session
+            .ended_at
+            .map(|end| end.signed_duration_since(session.started_at).num_milliseconds().max(0))
+            .unwrap_or(0);
+        info!(
+            session_id = %session_id,
+            model = %model,
+            tokens_output = session.tokens_output,
+            receipts = session.receipts.len(),
+            amount_micro_usd = session.amount_micro_usd,
+            duration_ms,
+            "session completed"
+        );
+    }
 }

@@ -70,6 +70,8 @@ fn test_config(backend_addr: SocketAddr, temp_dir: &TempDir) -> Config {
             log_level: "info".to_string(),
             mode: NodeMode::Solo,
             receipt_cadence_tokens: 1,
+            include_models: vec![],
+            exclude_models: vec![],
         },
         network: NetworkConfig {
             listen_addrs: vec![],
@@ -501,4 +503,23 @@ micro_usd_per_m_output_tokens = 780
         "node2 never discovered node1; node1 peer id={}",
         swarm1.peer_id
     );
+}
+
+#[tokio::test]
+#[serial]
+async fn recovers_active_sessions_after_restart() {
+    let temp_dir = TempDir::new().expect("tempdir");
+    let store = Arc::new(Store::open(temp_dir.path()).expect("store"));
+
+    let sessions_before = SessionManager::new(store.clone());
+    let session_id = sessions_before.open("mock-model", None);
+    sessions_before.record_chunk(session_id, 5, [0u8; 32], 1_000_000);
+
+    let sessions_after = SessionManager::new(store);
+    sessions_after.recover_from_store().expect("recover");
+
+    assert_eq!(sessions_after.active_count(), 1);
+    let recovered = sessions_after.get(session_id).expect("session recovered");
+    assert_eq!(recovered.model, "mock-model");
+    assert_eq!(recovered.tokens_output, 5);
 }

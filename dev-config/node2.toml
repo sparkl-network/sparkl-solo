@@ -4,13 +4,15 @@ data_dir = "./dev-data/node2"
 log_level = "info"
 mode = "solo"
 receipt_cadence_tokens = 50
+include_models = []
+exclude_models = []
 
 [network]
 listen_addrs = ["/ip4/127.0.0.1/tcp/31002"]
 inference_port = 19945
 bootstrap_peers = [
   "/ip4/127.0.0.1/tcp/31001/p2p/12D3KooWCvGrTAkNbjoxWoWjHMngKwV9TKHLWUyA51uF3NCX43CB",
-  "/ip4/192.168.10.199/tcp/30333/p2p/12D3KooWFUFFDKEzHXii4yucGrfdqxN7HmAtnfrn7vNzRGC2kh96"
+  "/ip4/192.168.10.199/tcp/30333/p2p/12D3KooWMr6gHBiC55poCBDRV9NcXcEfFjv4jEzA9s3cM81RyYmX"
 ]
 
 [backend]

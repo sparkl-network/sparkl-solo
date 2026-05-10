@@ -12,6 +12,11 @@ The `sparkl-solo` node implements:
 - libp2p-based peer discovery
 - local mock/TPM-oriented attestation and receipt verification endpoints
 
+### What is solo?
+
+A solo node is a single node that runs on a single machine. It is the simplest form of a Sparkl node.
+Planned: farm or gateway node, for running one sparkl-node and multiple provider nodes
+
 ## Development
 
 - `cargo check --features mock-tpm`
@@ -59,6 +64,7 @@ Progress is mapped to the multi-phase plan in `docs/Sparkle  Decentralised Priva
 - [ ] SDK-level trustless discovery and direct consumer P2P flows
 
 ### TBC
+- Oracle design for pricing
 - Integration with Unicity for state transition and proof generation
 - Integration with ZKP layer for Double-spend protection
 - Dashboard and UI

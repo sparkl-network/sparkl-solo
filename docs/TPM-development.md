@@ -1,5 +1,14 @@
 # TPM Testing Options on Mac
 
+## Important: `tpm2-tools` on macOS
+
+- `swtpm` is available via Homebrew (`brew install swtpm`).
+- `tpm2-tools` is currently not available in Homebrew core (`brew install tpm2-tools` returns "No available formula").
+- In this repo, running with `--features tpm` on macOS still works:
+  - when `TCTI`/`TPM2TOOLS_TCTI` is set **and** `tpm2_getrandom` exists, identity reports `cert_type: "swtpm"`.
+  - when `tpm2_getrandom` is not installed, identity falls back to software and reports `cert_type: "mock-software"`.
+- Use Linux (or a container/another machine with `tpm2-tools`) for full TPM2 CLI verification commands in this document.
+
 ## Option 1: Software TPM (swtpm) — Recommended for Dev
 
 swtpm is a free, open-source software TPM 2.0 emulator. It implements the full TPM2 spec in software — your Rust tss-esapi bindings talk to it over a Unix socket exactly as they would to real hardware. No DGX required.

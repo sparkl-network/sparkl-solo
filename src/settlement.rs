@@ -3,12 +3,13 @@ use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use tokio::time::sleep;
 use tracing::{info, warn};
 
 use crate::config::SettlementConfig;
 use crate::identity::NodeIdentity;
-use crate::session::SessionManager;
+use crate::session::{Session, SessionManager};
 use crate::store::Store;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -51,10 +52,21 @@ pub async fn run_epoch_loop(
             session_count: pending.len() as u32,
             total_tokens_output: total_tokens,
             total_micro_usd: pending.iter().map(|s| s.amount_micro_usd).sum(),
-            receipts_root: [0u8; 32],
+            receipts_root: compute_receipts_root(&pending),
             started_at: Utc::now(),
             ended_at: Utc::now(),
         });
         sleep(Duration::from_secs(config.epoch_secs.max(1))).await;
     }
+}
+
+fn compute_receipts_root(sessions: &[Session]) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    for session in sessions {
+        for receipt in &session.receipts {
+            let leaf = serde_json::to_vec(receipt).unwrap_or_default();
+            hasher.update(Sha256::digest(&leaf));
+        }
+    }
+    hasher.finalize().into()
 }

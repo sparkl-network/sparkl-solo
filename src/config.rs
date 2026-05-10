@@ -29,6 +29,25 @@ pub struct NodeConfig {
     pub mode: NodeMode,
     #[serde(default = "default_receipt_cadence_tokens")]
     pub receipt_cadence_tokens: u64,
+    #[serde(default)]
+    pub include_models: Vec<String>,
+    #[serde(default)]
+    pub exclude_models: Vec<String>,
+}
+
+impl NodeConfig {
+    pub fn is_model_allowed(&self, model_id: &str) -> bool {
+        let included = self.include_models.is_empty()
+            || self
+                .include_models
+                .iter()
+                .any(|allowed| allowed == model_id);
+        included
+            && !self
+                .exclude_models
+                .iter()
+                .any(|blocked| blocked == model_id)
+    }
 }
 
 #[derive(Debug, Deserialize, Clone)]

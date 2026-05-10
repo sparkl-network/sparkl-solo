@@ -4,7 +4,6 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::receipts::ChunkReceipt;
@@ -70,16 +69,21 @@ impl SessionManager {
         id
     }
 
-    pub fn record_chunk(&self, id: Uuid, tokens: u32, content_hash: [u8; 32]) {
+    pub fn record_chunk(
+        &self,
+        id: Uuid,
+        tokens: u32,
+        _content_hash: [u8; 32],
+        price_per_m_output_tokens: u64,
+    ) {
         if let Some(entry) = self.sessions.get(&id) {
             let mut guard = entry.lock().expect("session lock poisoned");
             guard.tokens_output = guard.tokens_output.saturating_add(tokens as u64);
-            let mut hasher = Sha256::new();
-            hasher.update(guard.amount_micro_usd.to_be_bytes());
-            hasher.update(content_hash);
-            let amount_hash = hasher.finalize();
-            guard.amount_micro_usd =
-                u64::from_be_bytes(amount_hash[0..8].try_into().unwrap_or_default());
+            // micro_usd = tokens * (micro_usd per million tokens) / 1_000_000
+            let chunk_cost = (tokens as u64)
+                .saturating_mul(price_per_m_output_tokens)
+                .saturating_div(1_000_000);
+            guard.amount_micro_usd = guard.amount_micro_usd.saturating_add(chunk_cost);
             let _ = self.store.save_session(&guard);
         }
     }

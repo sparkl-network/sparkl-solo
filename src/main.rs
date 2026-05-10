@@ -1,6 +1,7 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{anyhow, Result};
 use chrono::Utc;
@@ -24,11 +25,21 @@ async fn main() -> Result<()> {
     if let Some(cadence) = cli.receipt_cadence_tokens {
         cfg.node.receipt_cadence_tokens = cadence.max(1);
     }
+    if !cli.include_models.is_empty() {
+        cfg.node.include_models = cli.include_models.clone();
+    }
+    if !cli.exclude_models.is_empty() {
+        cfg.node.exclude_models = cli.exclude_models.clone();
+    }
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::new(cfg.node.log_level.clone()))
         .init();
 
     let store = Arc::new(Store::open(&cfg.node.data_dir)?);
+    let pruned_sessions = store.prune_old_sessions(Duration::from_secs(60 * 60 * 24 * 30))?;
+    if pruned_sessions > 0 {
+        info!(pruned_sessions, "pruned completed sessions from local store");
+    }
     let identity = identity::load_or_generate(&cfg).await?;
     let (_swarm_handle, swarm_cmd) =
         network::start_swarm(&identity, &cfg.network, &cfg.node.data_dir).await?;
@@ -80,6 +91,8 @@ async fn main() -> Result<()> {
 struct CliArgs {
     config_path: Option<PathBuf>,
     receipt_cadence_tokens: Option<u64>,
+    include_models: Vec<String>,
+    exclude_models: Vec<String>,
 }
 
 fn parse_cli_args<I>(mut args: I) -> Result<CliArgs>
@@ -89,6 +102,8 @@ where
     let mut out = CliArgs {
         config_path: None,
         receipt_cadence_tokens: None,
+        include_models: Vec::new(),
+        exclude_models: Vec::new(),
     };
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -108,8 +123,28 @@ where
                     .map_err(|_| anyhow!("invalid --receipt-cadence value: `{value}`"))?;
                 out.receipt_cadence_tokens = Some(parsed.max(1));
             }
+            "--include-models" => {
+                let Some(value) = args.next() else {
+                    return Err(anyhow!("--include-models requires a comma-separated value"));
+                };
+                out.include_models.extend(parse_model_list(&value));
+            }
+            "--exclude-models" => {
+                let Some(value) = args.next() else {
+                    return Err(anyhow!("--exclude-models requires a comma-separated value"));
+                };
+                out.exclude_models.extend(parse_model_list(&value));
+            }
             _ => {}
         }
     }
     Ok(out)
+}
+
+fn parse_model_list(raw: &str) -> Vec<String> {
+    raw.split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(ToOwned::to_owned)
+        .collect()
 }

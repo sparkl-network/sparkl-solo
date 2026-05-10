@@ -4,6 +4,8 @@ data_dir = "./.sparkl-data"
 log_level = "info"
 mode = "solo"
 receipt_cadence_tokens = 50
+include_models = []
+exclude_models = []
 
 [network]
 listen_addrs = ["/ip4/0.0.0.0/udp/30333/quic-v1", "/ip4/0.0.0.0/tcp/30333"]

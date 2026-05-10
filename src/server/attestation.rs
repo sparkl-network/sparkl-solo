@@ -49,7 +49,7 @@ pub async fn challenge(
             "nonce": req.nonce,
             "signature": hex::encode(signature),
             "attestation": {
-                "cert_type": "mock-software"
+                "cert_type": identity::attestation_cert_type().unwrap_or("mock-software")
             }
         })),
     )

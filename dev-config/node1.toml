@@ -4,6 +4,8 @@ data_dir = "./dev-data/node1"
 log_level = "info"
 mode = "solo"
 receipt_cadence_tokens = 50
+include_models = []
+exclude_models = []
 
 [network]
 listen_addrs = ["/ip4/127.0.0.1/tcp/31001"]

@@ -11,8 +11,21 @@ This guide covers local development for `sparkl-solo`, including running two loc
 
 - Build with mock TPM mode:
   - `cargo build --features mock-tpm`
+- Build with TPM feature:
+  - `cargo build --features tpm`
 - Run tests:
   - `cargo test --features mock-tpm`
+  - `cargo test --features tpm`
+
+## macOS TPM2 tooling note
+
+- `swtpm` is available on macOS via Homebrew:
+  - `brew install swtpm`
+- `tpm2-tools` is currently not available in Homebrew core (`brew install tpm2-tools` fails with "No available formula").
+- Current node behavior with `--features tpm` on macOS:
+  - if `TCTI`/`TPM2TOOLS_TCTI` is set and `tpm2_getrandom` exists, identity is marked TPM-backed (`cert_type: "swtpm"`).
+  - if `tpm2_getrandom` is missing, node automatically falls back to software identity (`cert_type: "mock-software"`).
+- For full TPM2 CLI validation (`tpm2_getcap`, `tpm2_getrandom`, etc.), use a Linux machine/container with `tpm2-tools` installed.
 
 ## Create local config files
 
@@ -166,3 +179,8 @@ yarn tpm:suite
 - Receipt cadence can be tuned per node:
   - config: `node.receipt_cadence_tokens = 50`
   - CLI override: `--receipt-cadence NUM_TOKS`
+- Model exposure can be filtered per node:
+  - config allow-list: `node.include_models = ["model/a", "model/b"]`
+  - config block-list: `node.exclude_models = ["model/private"]`
+  - CLI overrides: `--include-models model/a,model/b` and `--exclude-models model/private`
+  - filtering order: include first (or all models when include is empty), then exclude

@@ -11,6 +11,7 @@ pub async fn list_models(State(state): State<AppState>) -> impl IntoResponse {
         Ok(models) => {
             let data = models
                 .into_iter()
+                .filter(|m| super::is_model_allowed(&state, &m.id))
                 .map(|m| json!({ "id": m.id }))
                 .collect::<Vec<Value>>();
             (

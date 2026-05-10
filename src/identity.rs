@@ -1,5 +1,7 @@
 use std::fs;
 use std::path::PathBuf;
+#[cfg(feature = "tpm")]
+use std::process::Command;
 use std::sync::RwLock;
 
 use anyhow::{anyhow, Context, Result};
@@ -9,6 +11,8 @@ use ed25519_dalek::{Signer, SigningKey};
 use once_cell::sync::OnceCell;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "tpm")]
+use sha2::{Digest, Sha256};
 
 use crate::config::Config;
 
@@ -30,9 +34,22 @@ struct LoadedIdentity {
     pub public: NodeIdentity,
     pub x25519_secret: [u8; 32],
     pub ed25519_secret: [u8; 32],
+    pub key_source: KeySource,
 }
 
 static IDENTITY: OnceCell<RwLock<Option<LoadedIdentity>>> = OnceCell::new();
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+enum KeySource {
+    Software,
+    TpmRng,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct IdentityMeta {
+    key_source: KeySource,
+}
 
 pub async fn load_or_generate(config: &Config) -> Result<NodeIdentity> {
     let dir = config.node.data_dir.clone();
@@ -40,6 +57,7 @@ pub async fn load_or_generate(config: &Config) -> Result<NodeIdentity> {
 
     let public_path = dir.join("identity.json");
     let secret_path = dir.join("identity-secret.json");
+    let meta_path = dir.join("identity-meta.json");
 
     let loaded = if public_path.exists() && secret_path.exists() {
         let public: NodeIdentity = serde_json::from_slice(
@@ -50,23 +68,35 @@ pub async fn load_or_generate(config: &Config) -> Result<NodeIdentity> {
             &fs::read(&secret_path).context("failed to read identity-secret.json")?,
         )
         .context("invalid identity-secret.json")?;
+        let meta: IdentityMeta = if meta_path.exists() {
+            serde_json::from_slice(&fs::read(&meta_path).context("failed to read identity-meta.json")?)
+                .context("invalid identity-meta.json")?
+        } else {
+            IdentityMeta {
+                key_source: KeySource::Software,
+            }
+        };
         LoadedIdentity {
             public,
             x25519_secret: secret.x25519_secret,
             ed25519_secret: secret.ed25519_secret,
+            key_source: meta.key_source,
         }
     } else {
-        let mut x25519_secret = [0u8; 32];
-        let mut ed25519_secret = [0u8; 32];
-        rand::rngs::OsRng.fill_bytes(&mut x25519_secret);
-        rand::rngs::OsRng.fill_bytes(&mut ed25519_secret);
+        let preferred_source = key_source_for_generation();
+        let (x25519_secret, ed25519_secret, key_source) =
+            generate_secret_material(preferred_source)?;
 
         let x_secret = SecretKey::from(x25519_secret);
         let x_public: [u8; 32] = x_secret.public_key().to_bytes();
         let signing = SigningKey::from_bytes(&ed25519_secret);
         let ed_pub = signing.verifying_key().to_bytes();
 
-        let peer_id = format!("mock-{}", hex::encode(&x_public[..8]));
+        let peer_prefix = match key_source {
+            KeySource::Software => "mock",
+            KeySource::TpmRng => "tpm",
+        };
+        let peer_id = format!("{peer_prefix}-{}", hex::encode(&x_public[..8]));
         let public = NodeIdentity {
             peer_id,
             x25519_pubkey: x_public,
@@ -81,11 +111,17 @@ pub async fn load_or_generate(config: &Config) -> Result<NodeIdentity> {
             .context("failed to write identity.json")?;
         fs::write(&secret_path, serde_json::to_vec_pretty(&secret)?)
             .context("failed to write identity-secret.json")?;
+        fs::write(
+            &meta_path,
+            serde_json::to_vec_pretty(&IdentityMeta { key_source })?,
+        )
+        .context("failed to write identity-meta.json")?;
 
         LoadedIdentity {
             public,
             x25519_secret,
             ed25519_secret,
+            key_source,
         }
     };
 
@@ -128,6 +164,14 @@ pub fn current_identity() -> Result<NodeIdentity> {
     Ok(require_loaded()?.public)
 }
 
+pub fn attestation_cert_type() -> Result<&'static str> {
+    let loaded = require_loaded()?;
+    Ok(match loaded.key_source {
+        KeySource::Software => "mock-software",
+        KeySource::TpmRng => "swtpm",
+    })
+}
+
 fn require_loaded() -> Result<LoadedIdentity> {
     let cell = IDENTITY
         .get()
@@ -136,6 +180,109 @@ fn require_loaded() -> Result<LoadedIdentity> {
     guard
         .clone()
         .ok_or_else(|| anyhow!("identity not initialized"))
+}
+
+fn key_source_for_generation() -> KeySource {
+    #[cfg(feature = "tpm")]
+    {
+        if tpm_runtime_requested() {
+            return KeySource::TpmRng;
+        }
+    }
+    KeySource::Software
+}
+
+fn generate_secret_material(key_source: KeySource) -> Result<([u8; 32], [u8; 32], KeySource)> {
+    match key_source {
+        KeySource::Software => {
+            let mut x25519_secret = [0u8; 32];
+            let mut ed25519_secret = [0u8; 32];
+            rand::rngs::OsRng.fill_bytes(&mut x25519_secret);
+            rand::rngs::OsRng.fill_bytes(&mut ed25519_secret);
+            Ok((x25519_secret, ed25519_secret, KeySource::Software))
+        }
+        KeySource::TpmRng => {
+            #[cfg(feature = "tpm")]
+            {
+                match tpm_getrandom_64() {
+                    Ok(seed) => {
+                        let (x25519_secret, ed25519_secret) = derive_secrets_from_seed(seed);
+                        Ok((x25519_secret, ed25519_secret, KeySource::TpmRng))
+                    }
+                    Err(_) => {
+                        let mut x25519_secret = [0u8; 32];
+                        let mut ed25519_secret = [0u8; 32];
+                        rand::rngs::OsRng.fill_bytes(&mut x25519_secret);
+                        rand::rngs::OsRng.fill_bytes(&mut ed25519_secret);
+                        Ok((x25519_secret, ed25519_secret, KeySource::Software))
+                    }
+                }
+            }
+            #[cfg(not(feature = "tpm"))]
+            {
+                let mut x25519_secret = [0u8; 32];
+                let mut ed25519_secret = [0u8; 32];
+                rand::rngs::OsRng.fill_bytes(&mut x25519_secret);
+                rand::rngs::OsRng.fill_bytes(&mut ed25519_secret);
+                Ok((x25519_secret, ed25519_secret, KeySource::Software))
+            }
+        }
+    }
+}
+
+#[cfg(feature = "tpm")]
+fn derive_secrets_from_seed(seed: [u8; 64]) -> ([u8; 32], [u8; 32]) {
+    let mut x_hasher = Sha256::new();
+    x_hasher.update(seed);
+    x_hasher.update(b"sparkl/x25519");
+    let x25519_secret: [u8; 32] = x_hasher.finalize().into();
+
+    let mut ed_hasher = Sha256::new();
+    ed_hasher.update(seed);
+    ed_hasher.update(b"sparkl/ed25519");
+    let ed25519_secret: [u8; 32] = ed_hasher.finalize().into();
+
+    (x25519_secret, ed25519_secret)
+}
+
+#[cfg(feature = "tpm")]
+fn tpm_runtime_requested() -> bool {
+    std::env::var("TCTI").is_ok() || std::env::var("TPM2TOOLS_TCTI").is_ok()
+}
+
+#[cfg(feature = "tpm")]
+fn tpm_getrandom_64() -> Result<[u8; 64]> {
+    let bytes = 64usize;
+    let output = Command::new("tpm2_getrandom")
+        .arg(bytes.to_string())
+        .arg("--hex")
+        .output()
+        .context("failed to run tpm2_getrandom")?;
+    if !output.status.success() {
+        return Err(anyhow!(
+            "tpm2_getrandom exited with status {}",
+            output.status
+        ));
+    }
+
+    let stdout = String::from_utf8(output.stdout).context("tpm2_getrandom output was not utf8")?;
+    let compact = stdout
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect::<String>();
+    if compact.len() < bytes * 2 {
+        return Err(anyhow!(
+            "tpm2_getrandom returned too few hex bytes: expected {}, got {}",
+            bytes * 2,
+            compact.len()
+        ));
+    }
+    let raw = hex::decode(&compact[..bytes * 2]).context("invalid hex from tpm2_getrandom")?;
+    let arr: [u8; 64] = raw
+        .as_slice()
+        .try_into()
+        .map_err(|_| anyhow!("unexpected tpm2_getrandom length"))?;
+    Ok(arr)
 }
 
 #[allow(dead_code)]
