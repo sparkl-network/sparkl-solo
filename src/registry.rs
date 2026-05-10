@@ -1,3 +1,6 @@
+// STUB: This module is intentionally incomplete.
+// Safe to extend. Do not call from production paths without a feature flag.
+// See AGENTS.md for the full stub list.
 use std::sync::Arc;
 use std::time::Duration;
 

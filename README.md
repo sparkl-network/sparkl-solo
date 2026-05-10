@@ -17,6 +17,15 @@ The `sparkl-solo` node implements:
 A solo node is a single node that runs on a single machine. It is the simplest form of a Sparkl node.
 Planned: farm or gateway node, for running one sparkl-node and multiple provider nodes
 
+## Quick Start (Agent)
+MUST: Read the AGENTS.md!
+```bash
+cargo build --features mock-tpm          # verify it compiles
+cargo test --features mock-tpm           # unit + integration tests
+cd tests-js && yarn install              # install JS harness
+yarn tpm:suite                           # end-to-end 2-node test
+```
+
 ## Development
 
 - `cargo check --features mock-tpm`

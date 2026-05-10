@@ -8,14 +8,22 @@ include_models = []
 exclude_models = []
 
 [network]
+# list of listen addresses for libp2p - TCP and QUIC
 listen_addrs = ["/ip4/0.0.0.0/udp/30333/quic-v1", "/ip4/0.0.0.0/tcp/30333"]
+# list of public addresses to advertise and inject into DHT
+# public_addr = []
+# inference port - ws and quic-v1 (planned)
 inference_port = 9944
+# list of bootstrap peers to dial
 bootstrap_peers = [
   "/dns/boot.sparkl.network/tcp/51993/p2p/12D3KooWMr6gHBiC55poCBDRV9NcXcEfFjv4jEzA9s3cM81RyYmX",
   "/dns/boot.sparkl.network/tcp/52003/p2p/12D3KooWMHkKisRr7jhXUtpN1qasUwZmLZwsU8cEQ1Hb75LhS2xL"
 ]
-public_addr = []
+# allow non-global addresses to be inserted into DHT
+# default: false - could leak local addresses to the public DHT
 allow_non_globals_in_dht = false
+# advertised public IP address (recommended behind NAT)
+# external_ip = "127.0.0.1"
 
 [backend]
 url = "http://127.0.0.1:11434"

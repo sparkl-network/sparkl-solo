@@ -1,0 +1,3 @@
+# Test Manifest
+
+The Rust integration tests in `tests/integration_test.rs` are the primary behavior spec for node-side flows: model listing and pre-stream model validation, plaintext/encrypted streaming with signed receipts, two-node discovery, and session recovery after restart. The JavaScript operational suite in `tests-js/` validates live runtime behavior across running nodes (`status`, attestation challenge, encrypted stream handling, and cross-node receipt verification) using the same HTTP interfaces operators and SDK consumers use. A passing run typically shows Rust test output with all integration tests `... ok`, and JS output ending with successful script summaries such as `TPM suite passed { ... receipt_verify: 'signature_ok' ... }` with no thrown errors.

@@ -33,8 +33,13 @@ uuid = { version = "1", features = ["serde", "v4"] }
 crypto_box = "0.9"
 
 [features]
+# Default to laptop/CI-safe behavior so `cargo build` works without TPM tooling.
 default = ["mock-tpm"]
+# Software-only identity path; no TPM hardware/tooling required.
+# Use for local development, CI, and tests.
 mock-tpm = []
+# Enables TPM-backed entropy path (`tpm2_getrandom`) in `identity.rs`.
+# Requires TPM tooling/runtime (e.g. `swtpm` + `tpm2-tools` or hardware `/dev/tpm0`).
 tpm = []
 
 [dev-dependencies]
