@@ -74,7 +74,6 @@ impl SessionManager {
         if let Some(entry) = self.sessions.get(&id) {
             let mut guard = entry.lock().expect("session lock poisoned");
             guard.tokens_output = guard.tokens_output.saturating_add(tokens as u64);
-            guard.last_receipt_seq = guard.last_receipt_seq.saturating_add(1);
             let mut hasher = Sha256::new();
             hasher.update(guard.amount_micro_usd.to_be_bytes());
             hasher.update(content_hash);

@@ -61,6 +61,23 @@ pub fn verify_consumer_receipt(
     vk.verify(&payload, &sig).is_ok()
 }
 
+pub fn verify_provider_receipt(receipt: &ChunkReceipt, provider_pubkey: &[u8; 32]) -> bool {
+    let vk = match VerifyingKey::from_bytes(provider_pubkey) {
+        Ok(vk) => vk,
+        Err(_) => return false,
+    };
+    let sig_bytes: [u8; 64] = match receipt.provider_sig.as_slice().try_into() {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    let sig = Signature::from_bytes(&sig_bytes);
+    let payload = match canonical_payload(receipt) {
+        Ok(payload) => payload,
+        Err(_) => return false,
+    };
+    vk.verify(&payload, &sig).is_ok()
+}
+
 pub fn hash_chunk(bytes: &[u8]) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(bytes);

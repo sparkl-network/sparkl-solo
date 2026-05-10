@@ -69,6 +69,7 @@ fn test_config(backend_addr: SocketAddr, temp_dir: &TempDir) -> Config {
             data_dir: temp_dir.path().join("data"),
             log_level: "info".to_string(),
             mode: NodeMode::Solo,
+            receipt_cadence_tokens: 1,
         },
         network: NetworkConfig {
             listen_addrs: vec![],
@@ -109,6 +110,7 @@ async fn assert_receipts_present(resp: reqwest::Response) {
     assert!(resp.status().is_success());
     let body = resp.text().await.expect("body");
     let mut verified = 0usize;
+    let mut last_seq: Option<u64> = None;
 
     for line in body.lines().filter(|l| l.starts_with("data: ")) {
         let payload = line.trim_start_matches("data: ").trim();
@@ -128,12 +130,114 @@ async fn assert_receipts_present(resp: reqwest::Response) {
         let receipt: ChunkReceipt = serde_json::from_slice(&decoded).expect("receipt json");
         assert!(receipt.seq > 0);
         assert_eq!(receipt.session_id.to_string().len(), 36);
+        if let Some(prev) = last_seq {
+            assert_eq!(
+                receipt.seq,
+                prev + 1,
+                "receipt sequence must increment by one"
+            );
+        }
+        last_seq = Some(receipt.seq);
         verified += 1;
     }
 
     assert!(
         verified >= 2,
         "expected at least two receipt-bearing chunks"
+    );
+}
+
+#[tokio::test]
+#[serial]
+async fn lists_models_via_node_endpoint() {
+    let backend = Router::new()
+        .route("/health", get(backend_health))
+        .route("/v1/models", get(backend_models))
+        .route("/v1/chat/completions", post(backend_chat));
+    let backend_addr = spawn(backend).await;
+
+    let temp_dir = TempDir::new().expect("tempdir");
+    let cfg = test_config(backend_addr, &temp_dir);
+
+    let identity = identity::load_or_generate(&cfg).await.expect("identity");
+    let store = Arc::new(Store::open(&cfg.node.data_dir).expect("store"));
+    let sessions = Arc::new(SessionManager::new(store));
+    let proxy = Arc::new(BackendProxy::new(&cfg.backend).expect("proxy"));
+
+    let app_state = AppState {
+        config: cfg.clone(),
+        identity,
+        proxy,
+        sessions,
+        swarm_cmd: None,
+        started_at: Utc::now(),
+    };
+    let node_addr = spawn(server::router(app_state)).await;
+
+    let client = Client::new();
+    let resp = client
+        .get(format!("http://{}/v1/models", node_addr))
+        .send()
+        .await
+        .expect("send");
+    assert!(resp.status().is_success());
+
+    let body: Value = resp.json().await.expect("json body");
+    let data = body
+        .get("data")
+        .and_then(Value::as_array)
+        .expect("data array");
+    assert!(!data.is_empty());
+    assert_eq!(
+        data[0].get("id").and_then(Value::as_str),
+        Some("mock-model")
+    );
+}
+
+#[tokio::test]
+#[serial]
+async fn rejects_unknown_model_before_stream() {
+    let backend = Router::new()
+        .route("/health", get(backend_health))
+        .route("/v1/models", get(backend_models))
+        .route("/v1/chat/completions", post(backend_chat));
+    let backend_addr = spawn(backend).await;
+
+    let temp_dir = TempDir::new().expect("tempdir");
+    let cfg = test_config(backend_addr, &temp_dir);
+
+    let identity = identity::load_or_generate(&cfg).await.expect("identity");
+    let store = Arc::new(Store::open(&cfg.node.data_dir).expect("store"));
+    let sessions = Arc::new(SessionManager::new(store));
+    let proxy = Arc::new(BackendProxy::new(&cfg.backend).expect("proxy"));
+
+    let app_state = AppState {
+        config: cfg.clone(),
+        identity,
+        proxy,
+        sessions,
+        swarm_cmd: None,
+        started_at: Utc::now(),
+    };
+    let node_addr = spawn(server::router(app_state)).await;
+
+    let client = Client::new();
+    let resp = client
+        .post(format!("http://{}/v1/chat/completions", node_addr))
+        .json(&json!({
+            "model": "does-not-exist",
+            "messages": [{"role":"user","content":"ping"}],
+            "stream": true
+        }))
+        .send()
+        .await
+        .expect("send");
+
+    assert_eq!(resp.status(), reqwest::StatusCode::BAD_REQUEST);
+    let body: Value = resp.json().await.expect("json body");
+    assert_eq!(
+        body.get("type").and_then(Value::as_str),
+        Some("model_not_found")
     );
 }
 
@@ -159,6 +263,7 @@ async fn proxies_plaintext_and_embeds_receipts() {
         identity,
         proxy,
         sessions,
+        swarm_cmd: None,
         started_at: Utc::now(),
     };
     let node_addr = spawn(server::router(app_state)).await;
@@ -199,6 +304,7 @@ async fn proxies_encrypted_and_embeds_receipts() {
         identity: identity.clone(),
         proxy,
         sessions,
+        swarm_cmd: None,
         started_at: Utc::now(),
     };
     let node_addr = spawn(server::router(app_state)).await;
@@ -302,7 +408,7 @@ micro_usd_per_m_output_tokens = 780
         x25519_pubkey: [1u8; 32],
         ed25519_pubkey: [2u8; 32],
     };
-    let (swarm1, swarm1_cmd) = network::start_swarm(&id1, &cfg1.network)
+    let (swarm1, swarm1_cmd) = network::start_swarm(&id1, &cfg1.network, &cfg1.node.data_dir)
         .await
         .expect("start swarm1");
 
@@ -354,7 +460,7 @@ micro_usd_per_m_output_tokens = 780
         x25519_pubkey: [3u8; 32],
         ed25519_pubkey: [4u8; 32],
     };
-    let (swarm2, swarm2_cmd) = network::start_swarm(&id2, &cfg2.network)
+    let (swarm2, swarm2_cmd) = network::start_swarm(&id2, &cfg2.network, &cfg2.node.data_dir)
         .await
         .expect("start swarm2");
 

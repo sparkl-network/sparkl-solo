@@ -3,7 +3,9 @@ use std::convert::Infallible;
 use anyhow::{anyhow, Context};
 use async_stream::stream;
 use axum::extract::State;
+use axum::http::StatusCode;
 use axum::response::sse::{Event, Sse};
+use axum::response::{IntoResponse, Response};
 use axum::Json;
 use base64::Engine;
 use futures::StreamExt;
@@ -19,32 +21,64 @@ use super::AppState;
 pub async fn chat_completions(
     State(state): State<AppState>,
     Json(request): Json<Value>,
-) -> Sse<impl futures::Stream<Item = Result<Event, Infallible>>> {
-    let parsed_request = decrypt_request_if_needed(request).await;
+) -> Response {
+    let (backend_request, consumer_epk) = match decrypt_request_if_needed(request).await {
+        Ok(v) => v,
+        Err(err) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "error": format!("invalid request: {err}") })),
+            )
+                .into_response();
+        }
+    };
+
+    let model = match backend_request.get("model").and_then(|m| m.as_str()) {
+        Some(m) if !m.is_empty() => m.to_string(),
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "error": "missing required field: model" })),
+            )
+                .into_response();
+        }
+    };
+
+    let available_models = match state.proxy.list_models().await {
+        Ok(models) => models,
+        Err(err) => {
+            return (
+                StatusCode::BAD_GATEWAY,
+                Json(json!({ "error": format!("backend model listing failed: {err}") })),
+            )
+                .into_response();
+        }
+    };
+    if !available_models.iter().any(|m| m.id == model) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": format!("model not found: {model}"),
+                "type": "model_not_found"
+            })),
+        )
+            .into_response();
+    }
+
     let proxy = state.proxy.clone();
     let sessions = state.sessions.clone();
+    let receipt_cadence = state.config.node.receipt_cadence_tokens.max(1);
 
     let event_stream = stream! {
-        let (backend_request, consumer_epk) = match parsed_request {
-            Ok(v) => v,
-            Err(err) => {
-                yield Ok(Event::default().data(json!({"error": format!("invalid request: {err}")}).to_string()));
-                return;
-            }
-        };
-
-        let model = backend_request
-            .get("model")
-            .and_then(|m| m.as_str())
-            .unwrap_or("unknown-model")
-            .to_string();
         let session_id = sessions.open(&model, consumer_epk);
 
         let identity = match provider_identity() {
             Ok(i) => i,
             Err(err) => {
                 sessions.close(session_id, SessionState::ProviderError);
-                yield Ok(Event::default().data(json!({"error": format!("identity unavailable: {err}")}).to_string()));
+                yield Ok::<Event, Infallible>(
+                    Event::default().data(json!({"error": format!("identity unavailable: {err}")}).to_string())
+                );
                 return;
             }
         };
@@ -53,7 +87,9 @@ pub async fn chat_completions(
             Ok(s) => s,
             Err(err) => {
                 sessions.close(session_id, SessionState::ProviderError);
-                yield Ok(Event::default().data(json!({"error": format!("backend unavailable: {err}")}).to_string()));
+                yield Ok::<Event, Infallible>(
+                    Event::default().data(json!({"error": format!("backend unavailable: {err}")}).to_string())
+                );
                 return;
             }
         };
@@ -69,7 +105,7 @@ pub async fn chat_completions(
                         let payload = line.trim_start_matches("data: ").trim();
                         if payload == "[DONE]" {
                             sessions.close(session_id, SessionState::Completed);
-                            yield Ok(Event::default().data("[DONE]"));
+                            yield Ok::<Event, Infallible>(Event::default().data("[DONE]"));
                             return;
                         }
 
@@ -84,35 +120,40 @@ pub async fn chat_completions(
                         sessions.record_chunk(session_id, 1, content_hash);
 
                         if let Some(session) = sessions.get(session_id) {
-                            let receipt = match generate_receipt(&session, &identity, content_hash) {
-                                Ok(r) => r,
-                                Err(err) => {
-                                    warn!(%err, "receipt generation failed");
-                                    continue;
-                                }
-                            };
-                            sessions.add_receipt(session_id, receipt.clone());
-                            chunk["sparkl"] = json!({
-                                "seq": receipt.seq,
-                                "receipt": encode_receipt_for_sse(&receipt),
-                            });
-                            yield Ok(Event::default().data(chunk.to_string()));
+                            if session.tokens_output % receipt_cadence == 0 {
+                                let receipt = match generate_receipt(&session, &identity, content_hash) {
+                                    Ok(r) => r,
+                                    Err(err) => {
+                                        warn!(%err, "receipt generation failed");
+                                        yield Ok::<Event, Infallible>(Event::default().data(chunk.to_string()));
+                                        continue;
+                                    }
+                                };
+                                sessions.add_receipt(session_id, receipt.clone());
+                                chunk["sparkl"] = json!({
+                                    "seq": receipt.seq,
+                                    "receipt": encode_receipt_for_sse(&receipt),
+                                });
+                            }
                         }
+                        yield Ok::<Event, Infallible>(Event::default().data(chunk.to_string()));
                     }
                 }
                 Err(err) => {
                     sessions.close(session_id, SessionState::ProviderError);
-                    yield Ok(Event::default().data(json!({"error": err.to_string()}).to_string()));
+                    yield Ok::<Event, Infallible>(
+                        Event::default().data(json!({"error": err.to_string()}).to_string())
+                    );
                     return;
                 }
             }
         }
 
         sessions.close(session_id, SessionState::Completed);
-        yield Ok(Event::default().data("[DONE]"));
+        yield Ok::<Event, Infallible>(Event::default().data("[DONE]"));
     };
 
-    Sse::new(event_stream)
+    Sse::new(event_stream).into_response()
 }
 
 async fn decrypt_request_if_needed(request: Value) -> anyhow::Result<(Value, Option<[u8; 32]>)> {
