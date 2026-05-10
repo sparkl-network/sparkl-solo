@@ -1,0 +1,37 @@
+[node]
+name = "local-node-2"
+data_dir = "./dev-data/node2"
+log_level = "info"
+mode = "solo"
+receipt_cadence_tokens = 50
+
+[network]
+listen_addrs = ["/ip4/127.0.0.1/tcp/31002"]
+inference_port = 19945
+bootstrap_peers = ["/ip4/127.0.0.1/tcp/31001/p2p/12D3KooWCvGrTAkNbjoxWoWjHMngKwV9TKHLWUyA51uF3NCX43CB"]
+
+[backend]
+url = "http://127.0.0.1:1234"
+health_path = "/health"
+models_path = "/v1/models"
+timeout_secs = 120
+
+[attestation]
+nras_url = "https://nras.attestation.nvidia.com"
+nras_enabled = false
+cert_ttl_days = 7
+
+[registry]
+unicity_aggregator_url = "https://aggregator.unicity.network"
+heartbeat_secs = 30
+enabled = false
+
+[settlement]
+epoch_secs = 600
+evm_rpc_url = "https://mainnet.base.org"
+escrow_contract = "0x0000000000000000000000000000000000000000"
+enabled = false
+
+[pricing]
+micro_usd_per_m_input_tokens = 100
+micro_usd_per_m_output_tokens = 780

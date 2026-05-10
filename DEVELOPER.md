@@ -5,7 +5,7 @@ This guide covers local development for `sparkl-solo`, including running two loc
 ## Prerequisites
 
 - Rust toolchain (stable)
-- From this directory: `node1/`
+- From this directory: `sparkl-solo/`
 
 ## Build and test
 
@@ -30,6 +30,7 @@ name = "local-node-1"
 data_dir = "./dev-data/node1"
 log_level = "info"
 mode = "solo"
+receipt_cadence_tokens = 50
 
 [network]
 listen_addrs = ["/ip4/127.0.0.1/tcp/31001"]
@@ -73,6 +74,7 @@ name = "local-node-2"
 data_dir = "./dev-data/node2"
 log_level = "info"
 mode = "solo"
+receipt_cadence_tokens = 50
 
 [network]
 listen_addrs = ["/ip4/127.0.0.1/tcp/31002"]
@@ -145,3 +147,9 @@ cargo test --features mock-tpm two_nodes_discover_each_other_with_separate_confi
 - `mock-tpm` is required for laptop/dev workflows.
 - Registry and settlement are disabled in these local configs.
 - If using `llama-swap` on `:8000`, set `backend.url = "http://127.0.0.1:8000"`.
+- libp2p peer identity is persisted under `<data_dir>/network/`:
+  - `secret_ed25519` (private key, generated once if missing)
+  - `peer_id` (derived PeerId text)
+- Receipt cadence can be tuned per node:
+  - config: `node.receipt_cadence_tokens = 50`
+  - CLI override: `--receipt-cadence NUM_TOKS`
