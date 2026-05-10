@@ -136,6 +136,15 @@ pub async fn chat_completions(
                                     }
                                 };
                                 sessions.add_receipt(session_id, receipt.clone());
+                                #[cfg(feature = "unicity")]
+                                {
+                                    let receipt_for_anchor = receipt.clone();
+                                    tokio::spawn(async move {
+                                        if let Err(err) = crate::receipts::submit_commitment(&receipt_for_anchor).await {
+                                            warn!(%err, "unicity submit_commitment failed");
+                                        }
+                                    });
+                                }
                                 chunk["sparkl"] = json!({
                                     "seq": receipt.seq,
                                     "receipt": encode_receipt_for_sse(&receipt),

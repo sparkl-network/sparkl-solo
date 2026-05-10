@@ -84,6 +84,47 @@ pub fn hash_chunk(bytes: &[u8]) -> [u8; 32] {
     hasher.finalize().into()
 }
 
+pub fn unicity_request_id(receipt: &ChunkReceipt) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(receipt.session_id.as_bytes());
+    hasher.update(receipt.seq.to_le_bytes());
+    hasher.update(receipt.provider_id.as_bytes());
+    hasher.finalize().into()
+}
+
+#[cfg(feature = "unicity")]
+const UNICITY_GATEWAY_TESTNET: &str = "https://gateway-test.unicity.network/";
+
+#[cfg(feature = "unicity")]
+pub async fn submit_commitment(receipt: &ChunkReceipt) -> Result<()> {
+    let request_id = hex::encode(unicity_request_id(receipt));
+    let payload = serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "submit_commitment",
+        "params": {
+            "requestId": request_id,
+        },
+        "id": 1
+    });
+
+    let resp = reqwest::Client::new()
+        .post(UNICITY_GATEWAY_TESTNET)
+        .header("content-type", "application/json")
+        .json(&payload)
+        .send()
+        .await
+        .context("failed to call Unicity submit_commitment")?;
+    let status = resp.status();
+    let body = resp.text().await.unwrap_or_default();
+    anyhow::ensure!(
+        status.is_success(),
+        "Unicity submit_commitment failed with HTTP {}: {}",
+        status,
+        body
+    );
+    Ok(())
+}
+
 pub fn provider_identity() -> Result<NodeIdentity> {
     current_identity().context("provider identity unavailable")
 }

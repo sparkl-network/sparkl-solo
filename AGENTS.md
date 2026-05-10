@@ -22,6 +22,10 @@
 - src/server/inference.rs — the hot path, touch carefully
 - src/session.rs — session lifecycle, pricing lives here
 - src/receipts.rs — signing/verification, consensus-critical
+- src/receipts.rs unicity_request_id() — derives Unicity commitment ID from receipt
+- Unicity testnet: https://gateway-test.unicity.network (JSON-RPC 2.0)
+- Feature flag: --features unicity (enables async submit_commitment calls)
+- Do NOT await Unicity submission in the inference hot path — fire-and-forget via tokio::spawn
 - src/identity.rs — key management, TPM gate here
 - src/registry.rs — STUB, safe to modify
 - src/settlement.rs — STUB, safe to modify
