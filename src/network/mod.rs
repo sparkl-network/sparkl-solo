@@ -1,4 +1,6 @@
 use std::collections::HashSet;
+use std::fs;
+use std::path::Path;
 
 use anyhow::{anyhow, Context, Result};
 use futures::StreamExt;
@@ -27,10 +29,12 @@ pub struct SwarmHandle {
 pub async fn start_swarm(
     _identity: &NodeIdentity,
     config: &NetworkConfig,
+    data_dir: &Path,
 ) -> Result<(SwarmHandle, mpsc::Sender<SwarmCommand>)> {
     let (tx, mut rx) = mpsc::channel::<SwarmCommand>(8);
-    let local_key = libp2p::identity::Keypair::generate_ed25519();
+    let local_key = load_or_generate_swarm_key(data_dir)?;
     let local_peer_id = PeerId::from(local_key.public());
+    persist_peer_id_details(data_dir, local_peer_id)?;
     let behaviour = build_behaviour(local_peer_id, local_key.public())?;
 
     let mut swarm = SwarmBuilder::with_existing_identity(local_key)
@@ -70,7 +74,7 @@ pub async fn start_swarm(
         peer_id: local_peer_id.to_string(),
         listen_addrs: config.listen_addrs.clone(),
     };
-    let peer_id = handle.peer_id.clone();
+    let local_peer_id_str = handle.peer_id.clone();
 
     tokio::spawn(async move {
         let mut known_peers: HashSet<PeerId> = HashSet::new();
@@ -89,42 +93,97 @@ pub async fn start_swarm(
                     match event {
                         SwarmEvent::Behaviour(SparklEvent::Mdns(mdns::Event::Discovered(peers))) => {
                             for (peer, addr) in peers {
+                                info!(
+                                    local_peer=%local_peer_id_str,
+                                    discovered_peer=%peer,
+                                    %addr,
+                                    "mDNS discovered peer"
+                                );
                                 known_peers.insert(peer);
                                 swarm.behaviour_mut().kademlia.add_address(&peer, addr);
                             }
                         }
                         SwarmEvent::Behaviour(SparklEvent::Mdns(mdns::Event::Expired(peers))) => {
                             for (peer, addr) in peers {
+                                info!(
+                                    local_peer=%local_peer_id_str,
+                                    expired_peer=%peer,
+                                    %addr,
+                                    "mDNS peer expired"
+                                );
                                 swarm.behaviour_mut().kademlia.remove_address(&peer, &addr);
                             }
                         }
                         SwarmEvent::Behaviour(SparklEvent::Identify(event)) => {
-                            if let libp2p::identify::Event::Received { peer_id, info, .. } = event {
-                                known_peers.insert(peer_id);
+                            if let libp2p::identify::Event::Received { peer_id: remote_peer_id, info, .. } = event {
+                                let protocol_version = info.protocol_version.clone();
+                                let agent_version = info.agent_version.clone();
+                                known_peers.insert(remote_peer_id);
                                 for addr in info.listen_addrs {
-                                    swarm.behaviour_mut().kademlia.add_address(&peer_id, addr);
+                                    info!(
+                                        local_peer=%local_peer_id_str,
+                                        identified_peer=%remote_peer_id,
+                                        %addr,
+                                        protocol_version=%protocol_version,
+                                        agent_version=%agent_version,
+                                        "identify received listen addr"
+                                    );
+                                    swarm.behaviour_mut().kademlia.add_address(&remote_peer_id, addr);
                                 }
                             }
                         }
                         SwarmEvent::Behaviour(SparklEvent::Ping(ping_event)) => {
                             let peer = ping_event.peer;
                             if ping_event.result.is_err() {
+                                info!(
+                                    local_peer=%local_peer_id_str,
+                                    ping_peer=%peer,
+                                    "ping failed; removing peer from known set"
+                                );
                                 known_peers.remove(&peer);
                             } else {
+                                info!(local_peer=%local_peer_id_str, ping_peer=%peer, "ping success");
                                 known_peers.insert(peer);
                             }
                         }
                         SwarmEvent::Behaviour(SparklEvent::Kademlia(kad_event)) => {
-                            info!(?kad_event, %peer_id, "kademlia event");
+                            info!(local_peer=%local_peer_id_str, ?kad_event, "kademlia DHT event");
                         }
                         SwarmEvent::NewListenAddr { address, .. } => {
-                            info!(%peer_id, %address, "swarm listening");
+                            info!(local_peer=%local_peer_id_str, %address, "swarm listening");
                         }
-                        SwarmEvent::ConnectionEstablished { peer_id, .. } => {
-                            known_peers.insert(peer_id);
+                        SwarmEvent::ConnectionEstablished { peer_id: remote_peer_id, .. } => {
+                            info!(
+                                local_peer=%local_peer_id_str,
+                                connected_peer=%remote_peer_id,
+                                "connection established"
+                            );
+                            known_peers.insert(remote_peer_id);
                         }
-                        SwarmEvent::ConnectionClosed { peer_id, .. } => {
-                            known_peers.remove(&peer_id);
+                        SwarmEvent::ConnectionClosed { peer_id: remote_peer_id, .. } => {
+                            info!(
+                                local_peer=%local_peer_id_str,
+                                disconnected_peer=%remote_peer_id,
+                                "connection closed"
+                            );
+                            known_peers.remove(&remote_peer_id);
+                        }
+                        SwarmEvent::OutgoingConnectionError { peer_id, error, .. } => {
+                            info!(
+                                local_peer=%local_peer_id_str,
+                                dial_peer=?peer_id,
+                                %error,
+                                "outgoing connection error"
+                            );
+                        }
+                        SwarmEvent::IncomingConnectionError { local_addr, send_back_addr, error, .. } => {
+                            info!(
+                                local_peer=%local_peer_id_str,
+                                %local_addr,
+                                %send_back_addr,
+                                %error,
+                                "incoming connection error"
+                            );
                         }
                         _ => {}
                     }
@@ -135,3 +194,42 @@ pub async fn start_swarm(
 
     Ok((handle, tx))
 }
+
+fn load_or_generate_swarm_key(data_dir: &Path) -> Result<libp2p::identity::Keypair> {
+    let network_dir = data_dir.join("network");
+    fs::create_dir_all(&network_dir).context("failed to create network data dir")?;
+    let key_path = network_dir.join("secret_ed25519");
+
+    if key_path.exists() {
+        let bytes = fs::read(&key_path).context("failed to read persisted swarm key")?;
+        let keypair = libp2p::identity::Keypair::from_protobuf_encoding(&bytes)
+            .context("failed to decode persisted swarm key")?;
+        return Ok(keypair);
+    }
+
+    let keypair = libp2p::identity::Keypair::generate_ed25519();
+    let encoded = keypair
+        .to_protobuf_encoding()
+        .context("failed to encode swarm key")?;
+    fs::write(&key_path, encoded).context("failed to persist generated swarm key")?;
+    set_private_permissions(&key_path);
+    Ok(keypair)
+}
+
+fn persist_peer_id_details(data_dir: &Path, peer_id: PeerId) -> Result<()> {
+    let network_dir = data_dir.join("network");
+    fs::create_dir_all(&network_dir).context("failed to create network data dir")?;
+    let peer_id_path = network_dir.join("peer_id");
+    fs::write(&peer_id_path, format!("{peer_id}\n")).context("failed to persist peer id")?;
+    Ok(())
+}
+
+#[cfg(unix)]
+fn set_private_permissions(path: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+
+    let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
+}
+
+#[cfg(not(unix))]
+fn set_private_permissions(_path: &Path) {}

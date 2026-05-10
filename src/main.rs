@@ -1,7 +1,8 @@
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use chrono::Utc;
 use sparkl_solo::config;
 use sparkl_solo::identity;
@@ -18,14 +19,19 @@ use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let cfg = config::load(None)?;
+    let cli = parse_cli_args(std::env::args().skip(1))?;
+    let mut cfg = config::load(cli.config_path.as_deref())?;
+    if let Some(cadence) = cli.receipt_cadence_tokens {
+        cfg.node.receipt_cadence_tokens = cadence.max(1);
+    }
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::new(cfg.node.log_level.clone()))
         .init();
 
     let store = Arc::new(Store::open(&cfg.node.data_dir)?);
     let identity = identity::load_or_generate(&cfg).await?;
-    let _ = network::start_swarm(&identity, &cfg.network).await?;
+    let (_swarm_handle, swarm_cmd) =
+        network::start_swarm(&identity, &cfg.network, &cfg.node.data_dir).await?;
 
     let proxy = Arc::new(BackendProxy::new(&cfg.backend)?);
     if let Err(err) = proxy.check_health().await {
@@ -59,6 +65,7 @@ async fn main() -> Result<()> {
         identity: identity.clone(),
         proxy,
         sessions,
+        swarm_cmd: Some(swarm_cmd),
         started_at: Utc::now(),
     };
 
@@ -68,4 +75,41 @@ async fn main() -> Result<()> {
     info!("sparkl-solo ready on {}", listener.local_addr()?);
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+struct CliArgs {
+    config_path: Option<PathBuf>,
+    receipt_cadence_tokens: Option<u64>,
+}
+
+fn parse_cli_args<I>(mut args: I) -> Result<CliArgs>
+where
+    I: Iterator<Item = String>,
+{
+    let mut out = CliArgs {
+        config_path: None,
+        receipt_cadence_tokens: None,
+    };
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--config" | "-c" => {
+                if let Some(path) = args.next() {
+                    out.config_path = Some(PathBuf::from(path));
+                } else {
+                    return Err(anyhow!("--config requires a path value"));
+                }
+            }
+            "--receipt-cadence" => {
+                let Some(value) = args.next() else {
+                    return Err(anyhow!("--receipt-cadence requires a numeric value"));
+                };
+                let parsed = value
+                    .parse::<u64>()
+                    .map_err(|_| anyhow!("invalid --receipt-cadence value: `{value}`"))?;
+                out.receipt_cadence_tokens = Some(parsed.max(1));
+            }
+            _ => {}
+        }
+    }
+    Ok(out)
 }

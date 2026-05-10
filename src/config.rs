@@ -27,6 +27,8 @@ pub struct NodeConfig {
     pub data_dir: PathBuf,
     pub log_level: String,
     pub mode: NodeMode,
+    #[serde(default = "default_receipt_cadence_tokens")]
+    pub receipt_cadence_tokens: u64,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -105,4 +107,8 @@ fn expand_home(path: PathBuf) -> PathBuf {
         }
     }
     path
+}
+
+fn default_receipt_cadence_tokens() -> u64 {
+    50
 }
