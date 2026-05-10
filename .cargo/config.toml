@@ -1,0 +1,6 @@
+[build]
+target-dir = "target"
+
+[alias]
+xtest = "test --features mock-tpm"
+xcheck = "check --features mock-tpm"
