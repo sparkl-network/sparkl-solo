@@ -97,10 +97,8 @@ pub async fn start_swarm(
                                     local_peer=%local_peer_id_str,
                                     discovered_peer=%peer,
                                     %addr,
-                                    "mDNS discovered peer"
+                                    "mDNS discovered peer candidate"
                                 );
-                                known_peers.insert(peer);
-                                swarm.behaviour_mut().kademlia.add_address(&peer, addr);
                             }
                         }
                         SwarmEvent::Behaviour(SparklEvent::Mdns(mdns::Event::Expired(peers))) => {
@@ -118,32 +116,38 @@ pub async fn start_swarm(
                             if let libp2p::identify::Event::Received { peer_id: remote_peer_id, info, .. } = event {
                                 let protocol_version = info.protocol_version.clone();
                                 let agent_version = info.agent_version.clone();
-                                known_peers.insert(remote_peer_id);
-                                for addr in info.listen_addrs {
+                                let is_sparkl_peer = protocol_version.starts_with("sparkl/");
+                                if is_sparkl_peer {
+                                    known_peers.insert(remote_peer_id);
+                                    for addr in info.listen_addrs {
+                                        info!(
+                                            local_peer=%local_peer_id_str,
+                                            identified_peer=%remote_peer_id,
+                                            %addr,
+                                            protocol_version=%protocol_version,
+                                            agent_version=%agent_version,
+                                            "identify accepted sparkl peer"
+                                        );
+                                        swarm.behaviour_mut().kademlia.add_address(&remote_peer_id, addr);
+                                    }
+                                } else {
                                     info!(
                                         local_peer=%local_peer_id_str,
                                         identified_peer=%remote_peer_id,
-                                        %addr,
                                         protocol_version=%protocol_version,
                                         agent_version=%agent_version,
-                                        "identify received listen addr"
+                                        "identify ignored non-sparkl peer"
                                     );
-                                    swarm.behaviour_mut().kademlia.add_address(&remote_peer_id, addr);
+                                    known_peers.remove(&remote_peer_id);
                                 }
                             }
                         }
                         SwarmEvent::Behaviour(SparklEvent::Ping(ping_event)) => {
                             let peer = ping_event.peer;
                             if ping_event.result.is_err() {
-                                info!(
-                                    local_peer=%local_peer_id_str,
-                                    ping_peer=%peer,
-                                    "ping failed; removing peer from known set"
-                                );
-                                known_peers.remove(&peer);
+                                info!(local_peer=%local_peer_id_str, ping_peer=%peer, "ping failed");
                             } else {
                                 info!(local_peer=%local_peer_id_str, ping_peer=%peer, "ping success");
-                                known_peers.insert(peer);
                             }
                         }
                         SwarmEvent::Behaviour(SparklEvent::Kademlia(kad_event)) => {
@@ -158,15 +162,13 @@ pub async fn start_swarm(
                                 connected_peer=%remote_peer_id,
                                 "connection established"
                             );
-                            known_peers.insert(remote_peer_id);
                         }
                         SwarmEvent::ConnectionClosed { peer_id: remote_peer_id, .. } => {
                             info!(
                                 local_peer=%local_peer_id_str,
                                 disconnected_peer=%remote_peer_id,
-                                "connection closed"
+                                "connection closed (peer retained in known set)"
                             );
-                            known_peers.remove(&remote_peer_id);
                         }
                         SwarmEvent::OutgoingConnectionError { peer_id, error, .. } => {
                             info!(

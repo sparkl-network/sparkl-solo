@@ -55,7 +55,7 @@ pub fn build_behaviour(
 
     let mdns = mdns::tokio::Behaviour::new(mdns::Config::default(), local_peer_id)?;
     let identify = identify::Behaviour::new(identify::Config::new(
-        "sparkl-solo/0.1.0".to_string(),
+        "sparkl/0.1.0".to_string(),
         public_key,
     ));
     let ping = ping::Behaviour::new(ping::Config::new());
