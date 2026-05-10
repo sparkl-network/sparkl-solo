@@ -80,9 +80,11 @@ Progress is mapped to the multi-phase plan in `docs/Sparkle  Decentralised Priva
 - [x] Encrypted request handling (`epk` + `ciphertext`) in inference path
 - [x] Receipt verification endpoint (`/receipts/verify`) and attestation challenge endpoint (`/attestation/challenge`)
 - [x] Configurable model visibility controls (`include_models` then `exclude_models`)
+- [x] Public `/status` reduced to readiness-only with optional `/status/detail` diagnostics exposure
 - [x] Session accounting now uses real token pricing (`amount_micro_usd`)
 - [x] Settlement epoch batches now compute a receipts root (non-zero placeholder removed)
 - [x] Session completion logs include tokens, receipts, earnings, and duration
+- [x] Unicity integration entry points added (`unicity_request_id`, feature-gated async `submit_commitment`)
 - [ ] Live NRAS verification and production attestation certificate flow
 - [ ] Unicity registry heartbeats/state transitions beyond local stub behavior
 - [ ] On-chain escrow/payment settlement integration beyond disabled local config
@@ -100,6 +102,7 @@ Progress is mapped to the multi-phase plan in `docs/Sparkle  Decentralised Priva
 
 - [x] `SETUP.md` production runbook (config + port forwarding)
 - [x] Expanded macOS TPM guidance in `DEVELOPER.md` and `docs/TPM-development.md`
+- [x] `tests-js` Unicity gateway smoke test (`yarn unicity:ping`)
 - [ ] GitHub Actions CI workflow activation (requires token/repo permission for workflow updates)
 
 ### TBC
