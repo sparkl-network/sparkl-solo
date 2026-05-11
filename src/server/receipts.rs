@@ -1,4 +1,4 @@
-use axum::extract::State;
+use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
@@ -65,4 +65,42 @@ pub async fn verify(
         Json(json!({ "valid": valid, "reason": reason })),
     )
         .into_response()
+}
+
+pub async fn proof(
+    Path((session_id, seq)): Path<(String, u64)>,
+    State(state): State<AppState>,
+) -> Response {
+    let session_uuid = match uuid::Uuid::parse_str(&session_id) {
+        Ok(v) => v,
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "error": "invalid_session_id" })),
+            )
+                .into_response()
+        }
+    };
+
+    match state.sessions.get_unicity_proof(session_uuid, seq) {
+        Ok(Some(proof_hex)) => (
+            StatusCode::OK,
+            Json(json!({
+                "session_id": session_id,
+                "seq": seq,
+                "proof_hex": proof_hex
+            })),
+        )
+            .into_response(),
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "proof_not_found" })),
+        )
+            .into_response(),
+        Err(err) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": format!("failed_to_load_proof: {err}") })),
+        )
+            .into_response(),
+    }
 }

@@ -76,6 +76,26 @@ impl Store {
         Ok(())
     }
 
+    pub fn save_unicity_proof(&self, session_id: Uuid, seq: u64, proof_hex: &str) -> Result<()> {
+        let tree = self.db.open_tree("unicity_proofs")?;
+        let key = format!("{session_id}:{seq}");
+        tree.insert(key.as_bytes(), proof_hex.as_bytes())?;
+        tree.flush()?;
+        Ok(())
+    }
+
+    pub fn load_unicity_proof(&self, session_id: Uuid, seq: u64) -> Result<Option<String>> {
+        let tree = self.db.open_tree("unicity_proofs")?;
+        let key = format!("{session_id}:{seq}");
+        let value = tree.get(key.as_bytes())?;
+        let Some(bytes) = value else {
+            return Ok(None);
+        };
+        Ok(Some(
+            String::from_utf8(bytes.to_vec()).context("invalid unicity proof payload")?,
+        ))
+    }
+
     pub fn prune_old_sessions(&self, older_than: Duration) -> Result<u64> {
         let tree = self.db.open_tree("sessions")?;
         let now = Utc::now();

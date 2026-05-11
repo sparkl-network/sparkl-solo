@@ -93,36 +93,94 @@ pub fn unicity_request_id(receipt: &ChunkReceipt) -> [u8; 32] {
 }
 
 #[cfg(feature = "unicity")]
-const UNICITY_GATEWAY_TESTNET: &str = "https://gateway-test.unicity.network/";
+const UNICITY_GATEWAY_TESTNETS: [&str; 2] = [
+    "https://gateway-test.unicity.network/",
+    "https://goggregator-test.unicity.network/",
+];
 
 #[cfg(feature = "unicity")]
-pub async fn submit_commitment(receipt: &ChunkReceipt) -> Result<()> {
+pub async fn submit_commitment(receipt: &ChunkReceipt) -> Result<String> {
     let request_id = hex::encode(unicity_request_id(receipt));
+    let payload =
+        hex::encode(serde_json::to_vec(receipt).context("failed to serialize receipt payload")?);
     let payload = serde_json::json!({
         "jsonrpc": "2.0",
         "method": "submit_commitment",
         "params": {
             "requestId": request_id,
+            "payload": payload,
         },
         "id": 1
     });
 
-    let resp = reqwest::Client::new()
-        .post(UNICITY_GATEWAY_TESTNET)
-        .header("content-type", "application/json")
-        .json(&payload)
-        .send()
-        .await
-        .context("failed to call Unicity submit_commitment")?;
-    let status = resp.status();
-    let body = resp.text().await.unwrap_or_default();
-    anyhow::ensure!(
-        status.is_success(),
-        "Unicity submit_commitment failed with HTTP {}: {}",
-        status,
-        body
-    );
-    Ok(())
+    post_to_unicity_gateways(&payload, "submit_commitment").await?;
+
+    // Proof materialization may lag slightly behind acceptance; retry briefly.
+    let mut last_err = None;
+    for _ in 0..3 {
+        match get_inclusion_proof_hex(&request_id).await {
+            Ok(proof_hex) => return Ok(proof_hex),
+            Err(err) => last_err = Some(err),
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    }
+    Err(last_err.unwrap_or_else(|| anyhow::anyhow!("failed to fetch inclusion proof")))
+}
+
+#[cfg(feature = "unicity")]
+async fn get_inclusion_proof_hex(request_id: &str) -> Result<String> {
+    let payload = serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "get_inclusion_proof",
+        "params": {
+            "requestId": request_id,
+            "stateId": request_id
+        },
+        "id": 2
+    });
+    let body = post_to_unicity_gateways(&payload, "get_inclusion_proof").await?;
+    let value: serde_json::Value =
+        serde_json::from_str(&body).context("invalid JSON response from get_inclusion_proof")?;
+    if let Some(error) = value.get("error") {
+        anyhow::bail!("Unicity get_inclusion_proof RPC error: {error}");
+    }
+    let result = value
+        .get("result")
+        .cloned()
+        .context("Unicity get_inclusion_proof missing result field")?;
+    let result_bytes = serde_json::to_vec(&result).context("failed to encode inclusion proof")?;
+    Ok(hex::encode(result_bytes))
+}
+
+#[cfg(feature = "unicity")]
+async fn post_to_unicity_gateways(payload: &serde_json::Value, method: &str) -> Result<String> {
+    let client = reqwest::Client::new();
+    let mut last_error = String::new();
+
+    for gateway in UNICITY_GATEWAY_TESTNETS {
+        let resp = client
+            .post(gateway)
+            .header("content-type", "application/json")
+            .json(payload)
+            .send()
+            .await;
+
+        match resp {
+            Ok(resp) => {
+                let status = resp.status();
+                let body = resp.text().await.unwrap_or_default();
+                if status.is_success() {
+                    return Ok(body);
+                }
+                last_error = format!("gateway {gateway} returned HTTP {status}: {body}");
+            }
+            Err(err) => {
+                last_error = format!("gateway {gateway} request failed: {err}");
+            }
+        }
+    }
+
+    anyhow::bail!("Unicity {method} failed on all gateways: {last_error}")
 }
 
 pub fn provider_identity() -> Result<NodeIdentity> {

@@ -248,6 +248,62 @@ async fn status_detail_is_available_when_enabled() {
 
 #[tokio::test]
 #[serial]
+async fn returns_stored_unicity_proof_for_receipt() {
+    let backend = Router::new()
+        .route("/health", get(backend_health))
+        .route("/v1/models", get(backend_models))
+        .route("/v1/chat/completions", post(backend_chat));
+    let backend_addr = spawn(backend).await;
+
+    let temp_dir = TempDir::new().expect("tempdir");
+    let cfg = test_config(backend_addr, &temp_dir);
+
+    let identity = identity::load_or_generate(&cfg).await.expect("identity");
+    let store = Arc::new(Store::open(&cfg.node.data_dir).expect("store"));
+    let sessions = Arc::new(SessionManager::new(store));
+    let proxy = Arc::new(BackendProxy::new(&cfg.backend).expect("proxy"));
+
+    let app_state = AppState {
+        config: cfg.clone(),
+        identity,
+        proxy,
+        sessions: sessions.clone(),
+        swarm_cmd: None,
+        started_at: Utc::now(),
+    };
+    let node_addr = spawn(server::router(app_state)).await;
+
+    let session_id = sessions.open("mock-model", None);
+    sessions
+        .save_unicity_proof(session_id, 7, "deadbeef")
+        .expect("save proof");
+
+    let client = Client::new();
+    let resp = client
+        .get(format!(
+            "http://{}/receipts/proof/{}/{}",
+            node_addr, session_id, 7
+        ))
+        .send()
+        .await
+        .expect("send");
+    assert!(resp.status().is_success());
+
+    let body: Value = resp.json().await.expect("json body");
+    let expected_session_id = session_id.to_string();
+    assert_eq!(
+        body.get("proof_hex").and_then(Value::as_str),
+        Some("deadbeef")
+    );
+    assert_eq!(
+        body.get("session_id").and_then(Value::as_str),
+        Some(expected_session_id.as_str())
+    );
+    assert_eq!(body.get("seq").and_then(Value::as_u64), Some(7));
+}
+
+#[tokio::test]
+#[serial]
 async fn lists_models_via_node_endpoint() {
     let backend = Router::new()
         .route("/health", get(backend_health))

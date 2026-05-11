@@ -148,4 +148,12 @@ impl SessionManager {
             })
             .count()
     }
+
+    pub fn save_unicity_proof(&self, session_id: Uuid, seq: u64, proof_hex: &str) -> Result<()> {
+        self.store.save_unicity_proof(session_id, seq, proof_hex)
+    }
+
+    pub fn get_unicity_proof(&self, session_id: Uuid, seq: u64) -> Result<Option<String>> {
+        self.store.load_unicity_proof(session_id, seq)
+    }
 }

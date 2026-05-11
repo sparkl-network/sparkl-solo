@@ -34,6 +34,7 @@ pub fn router(state: AppState) -> Router {
         .route("/status/detail", get(health::status_detail))
         .route("/attestation/challenge", post(attestation::challenge))
         .route("/receipts/verify", post(receipts::verify))
+        .route("/receipts/proof/{session_id}/{seq}", get(receipts::proof))
         .route("/v1/models", get(models::list_models))
         .route("/v1/chat/completions", post(inference::chat_completions))
         .with_state(state)

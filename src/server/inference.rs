@@ -139,9 +139,21 @@ pub async fn chat_completions(
                                 #[cfg(feature = "unicity")]
                                 {
                                     let receipt_for_anchor = receipt.clone();
+                                    let sessions_for_anchor = sessions.clone();
                                     tokio::spawn(async move {
-                                        if let Err(err) = crate::receipts::submit_commitment(&receipt_for_anchor).await {
-                                            warn!(%err, "unicity submit_commitment failed");
+                                        match crate::receipts::submit_commitment(&receipt_for_anchor).await {
+                                            Ok(proof_hex) => {
+                                                if let Err(err) = sessions_for_anchor.save_unicity_proof(
+                                                    receipt_for_anchor.session_id,
+                                                    receipt_for_anchor.seq,
+                                                    &proof_hex,
+                                                ) {
+                                                    warn!(%err, "failed to persist unicity inclusion proof");
+                                                }
+                                            }
+                                            Err(err) => {
+                                                warn!(%err, "unicity submit_commitment failed");
+                                            }
                                         }
                                     });
                                 }
