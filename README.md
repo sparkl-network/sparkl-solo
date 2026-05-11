@@ -44,6 +44,13 @@ You can override config with either CLI flags or environment variables.
 - **Arrays via env vars:** use JSON array strings
   - example: `SPARKLE__NETWORK__PUBLIC_ADDR='["/ip4/1.2.3.4/tcp/30333"]'`
 
+Unicity anchoring (`--features unicity`) uses `registry.unicity_aggregator_url` as the JSON-RPC base URL. Override it with the same env mechanism — no extra env handling code; `config` loads `Environment::with_prefix("SPARKLE").separator("__")` automatically.
+
+```bash
+SPARKLE__REGISTRY__UNICITY_AGGREGATOR_URL=https://goggregator-test.unicity.network/ \
+  cargo run --features unicity
+```
+
 Common CLI examples:
 
 - `--config dev-config/node1.toml`

@@ -140,8 +140,15 @@ pub async fn chat_completions(
                                 {
                                     let receipt_for_anchor = receipt.clone();
                                     let sessions_for_anchor = sessions.clone();
+                                    let unicity_gateway_url =
+                                        state.config.registry.unicity_aggregator_url.clone();
                                     tokio::spawn(async move {
-                                        match crate::receipts::submit_commitment(&receipt_for_anchor).await {
+                                        match crate::receipts::submit_commitment(
+                                            &receipt_for_anchor,
+                                            &unicity_gateway_url,
+                                        )
+                                        .await
+                                        {
                                             Ok(proof) => {
                                                 if let Err(err) = sessions_for_anchor.save_unicity_proof(
                                                     receipt_for_anchor.session_id,

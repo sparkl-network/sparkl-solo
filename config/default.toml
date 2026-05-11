@@ -40,7 +40,7 @@ nras_enabled = false
 cert_ttl_days = 7
 
 [registry]
-unicity_aggregator_url = "https://aggregator.unicity.network"
+unicity_aggregator_url = "https://aggregator.unicity.network/"
 heartbeat_secs = 30
 enabled = false
 

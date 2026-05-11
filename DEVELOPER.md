@@ -183,6 +183,7 @@ yarn tpm:suite
   - example: `SPARKLE__NETWORK__INFERENCE_PORT=19944`
   - example: `SPARKLE__NETWORK__EXPOSE_STATUS_DETAIL=true`
   - for array values, pass JSON: `SPARKLE__NETWORK__PUBLIC_ADDR='["/ip4/203.0.113.10/tcp/30333"]'`
+  - Unicity JSON-RPC gateway (`registry.unicity_aggregator_url`), e.g. testnet: `SPARKLE__REGISTRY__UNICITY_AGGREGATOR_URL=https://goggregator-test.unicity.network/` then `cargo run --features unicity` — works without any additional env-var wiring beyond the existing `SPARKLE__` loader
 - `mock-tpm` is required for laptop/dev workflows.
 - Registry and settlement are disabled in these local configs.
 - If using `llama-swap` on `:8000`, set `backend.url = "http://127.0.0.1:8000"`.

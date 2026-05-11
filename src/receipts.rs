@@ -132,13 +132,7 @@ pub fn unicity_request_id(receipt: &ChunkReceipt) -> [u8; 32] {
 }
 
 #[cfg(feature = "unicity")]
-const UNICITY_GATEWAY_TESTNETS: [&str; 2] = [
-    "https://gateway-test.unicity.network/",
-    "https://goggregator-test.unicity.network/",
-];
-
-#[cfg(feature = "unicity")]
-pub async fn submit_commitment(receipt: &ChunkReceipt) -> Result<UnicityProof> {
+pub async fn submit_commitment(receipt: &ChunkReceipt, gateway_url: &str) -> Result<UnicityProof> {
     let request_id = RequestId(hex::encode(unicity_request_id(receipt)));
     let state_id = derive_state_id(receipt, &request_id);
     let payload_hex = hex::encode(
@@ -154,12 +148,12 @@ pub async fn submit_commitment(receipt: &ChunkReceipt) -> Result<UnicityProof> {
         "id": 1
     });
 
-    post_to_unicity_gateways(&body, "submit_commitment").await?;
+    post_to_unicity_gateway(gateway_url, &body, "submit_commitment").await?;
 
     // Proof materialization may lag slightly behind acceptance; retry briefly.
     let mut last_err = None;
     for _ in 0..3 {
-        match get_inclusion_proof_hex(&request_id, &state_id).await {
+        match get_inclusion_proof_hex(gateway_url, &request_id, &state_id).await {
             Ok((proof_hex, query_shape)) => {
                 info!(
                     request_id = request_id.as_str(),
@@ -183,6 +177,7 @@ pub async fn submit_commitment(receipt: &ChunkReceipt) -> Result<UnicityProof> {
 
 #[cfg(feature = "unicity")]
 async fn get_inclusion_proof_hex(
+    gateway_url: &str,
     request_id: &RequestId,
     state_id: &StateId,
 ) -> Result<(String, &'static str)> {
@@ -190,17 +185,18 @@ async fn get_inclusion_proof_hex(
     let state_id_params = serde_json::json!({
         "stateId": state_id.as_str()
     });
-    match get_inclusion_proof_with_params(state_id_params).await {
+    match get_inclusion_proof_with_params(gateway_url, state_id_params).await {
         Ok(proof_hex) => return Ok((proof_hex, "stateId")),
         Err(InclusionProofQueryError::InvalidParams(_)) => {
             let request_id_params = serde_json::json!({
                 "requestId": request_id.as_str()
             });
-            let proof_hex = match get_inclusion_proof_with_params(request_id_params).await {
-                Ok(proof_hex) => proof_hex,
-                Err(InclusionProofQueryError::InvalidParams(err))
-                | Err(InclusionProofQueryError::Other(err)) => return Err(err),
-            };
+            let proof_hex =
+                match get_inclusion_proof_with_params(gateway_url, request_id_params).await {
+                    Ok(proof_hex) => proof_hex,
+                    Err(InclusionProofQueryError::InvalidParams(err))
+                    | Err(InclusionProofQueryError::Other(err)) => return Err(err),
+                };
             return Ok((proof_hex, "requestId"));
         }
         Err(InclusionProofQueryError::Other(err)) => return Err(err),
@@ -209,6 +205,7 @@ async fn get_inclusion_proof_hex(
 
 #[cfg(feature = "unicity")]
 async fn get_inclusion_proof_with_params(
+    gateway_url: &str,
     params: serde_json::Value,
 ) -> std::result::Result<String, InclusionProofQueryError> {
     let body = serde_json::json!({
@@ -217,7 +214,7 @@ async fn get_inclusion_proof_with_params(
         "params": params,
         "id": 2
     });
-    let body = post_to_unicity_gateways(&body, "get_inclusion_proof")
+    let body = post_to_unicity_gateway(gateway_url, &body, "get_inclusion_proof")
         .await
         .map_err(InclusionProofQueryError::Other)?;
     let value: serde_json::Value = serde_json::from_str(&body).map_err(|err| {
@@ -252,34 +249,26 @@ fn derive_state_id(_receipt: &ChunkReceipt, request_id: &RequestId) -> StateId {
 }
 
 #[cfg(feature = "unicity")]
-async fn post_to_unicity_gateways(payload: &serde_json::Value, method: &str) -> Result<String> {
-    let client = reqwest::Client::new();
-    let mut last_error = String::new();
-
-    for gateway in UNICITY_GATEWAY_TESTNETS {
-        let resp = client
-            .post(gateway)
-            .header("content-type", "application/json")
-            .json(payload)
-            .send()
-            .await;
-
-        match resp {
-            Ok(resp) => {
-                let status = resp.status();
-                let body = resp.text().await.unwrap_or_default();
-                if status.is_success() {
-                    return Ok(body);
-                }
-                last_error = format!("gateway {gateway} returned HTTP {status}: {body}");
-            }
-            Err(err) => {
-                last_error = format!("gateway {gateway} request failed: {err}");
-            }
-        }
-    }
-
-    anyhow::bail!("Unicity {method} failed on all gateways: {last_error}")
+async fn post_to_unicity_gateway(
+    url: &str,
+    payload: &serde_json::Value,
+    method: &str,
+) -> Result<String> {
+    let resp = reqwest::Client::new()
+        .post(url)
+        .header("content-type", "application/json")
+        .json(payload)
+        .send()
+        .await
+        .with_context(|| format!("Unicity {method} request to {url} failed"))?;
+    let status = resp.status();
+    let body = resp.text().await.unwrap_or_default();
+    anyhow::ensure!(
+        status.is_success(),
+        "Unicity {method} at {url} returned HTTP {status}: {}",
+        &body[..body.len().min(200)]
+    );
+    Ok(body)
 }
 
 pub fn provider_identity() -> Result<NodeIdentity> {

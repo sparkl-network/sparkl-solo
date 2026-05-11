@@ -197,6 +197,7 @@ Environment variables are also supported through `config` crate loading:
   - `SPARKLE__BACKEND__URL=http://127.0.0.1:1234`
   - `SPARKLE__NETWORK__EXPOSE_STATUS_DETAIL=true`
   - `SPARKLE__NETWORK__ALLOW_NON_GLOBALS_IN_DHT=false`
+  - `SPARKLE__REGISTRY__UNICITY_AGGREGATOR_URL=https://goggregator-test.unicity.network/` (Unicity JSON-RPC base URL when using `--features unicity`; same `SPARKLE__` + `__` mapping as other keys — no separate env integration)
 
 For list values, use JSON arrays:
 
