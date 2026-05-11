@@ -83,12 +83,15 @@ pub async fn proof(
     };
 
     match state.sessions.get_unicity_proof(session_uuid, seq) {
-        Ok(Some(proof_hex)) => (
+        Ok(Some(proof)) => (
             StatusCode::OK,
             Json(json!({
                 "session_id": session_id,
                 "seq": seq,
-                "proof_hex": proof_hex
+                "proof_hex": proof.proof_hex,
+                "request_id": if proof.request_id.is_empty() { serde_json::Value::Null } else { json!(proof.request_id) },
+                "state_id": if proof.state_id.is_empty() { serde_json::Value::Null } else { json!(proof.state_id) },
+                "anchored_at_ms": if proof.anchored_at_ms == 0 { serde_json::Value::Null } else { json!(proof.anchored_at_ms) }
             })),
         )
             .into_response(),

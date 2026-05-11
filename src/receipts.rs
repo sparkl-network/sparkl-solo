@@ -4,6 +4,8 @@ use chrono::Utc;
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+#[cfg(feature = "unicity")]
+use tracing::info;
 use uuid::Uuid;
 
 use crate::identity::{current_identity, sign_bytes, NodeIdentity};
@@ -18,6 +20,43 @@ pub struct ChunkReceipt {
     pub content_hash: [u8; 32],
     pub timestamp_ms: u64,
     pub provider_sig: Vec<u8>,
+}
+
+#[cfg(feature = "unicity")]
+#[derive(Debug, Clone)]
+struct RequestId(String);
+
+#[cfg(feature = "unicity")]
+impl RequestId {
+    fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+#[cfg(feature = "unicity")]
+#[derive(Debug, Clone)]
+struct StateId(String);
+
+#[cfg(feature = "unicity")]
+impl StateId {
+    fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+#[cfg(feature = "unicity")]
+#[derive(Debug)]
+enum InclusionProofQueryError {
+    InvalidParams(anyhow::Error),
+    Other(anyhow::Error),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UnicityProof {
+    pub request_id: String,
+    pub state_id: String,
+    pub proof_hex: String,
+    pub anchored_at_ms: u64,
 }
 
 pub fn generate_receipt(
@@ -99,27 +138,42 @@ const UNICITY_GATEWAY_TESTNETS: [&str; 2] = [
 ];
 
 #[cfg(feature = "unicity")]
-pub async fn submit_commitment(receipt: &ChunkReceipt) -> Result<String> {
-    let request_id = hex::encode(unicity_request_id(receipt));
-    let payload =
-        hex::encode(serde_json::to_vec(receipt).context("failed to serialize receipt payload")?);
-    let payload = serde_json::json!({
+pub async fn submit_commitment(receipt: &ChunkReceipt) -> Result<UnicityProof> {
+    let request_id = RequestId(hex::encode(unicity_request_id(receipt)));
+    let state_id = derive_state_id(receipt, &request_id);
+    let payload_hex = hex::encode(
+        canonical_payload(receipt).context("failed to serialize canonical receipt payload")?,
+    );
+    let body = serde_json::json!({
         "jsonrpc": "2.0",
         "method": "submit_commitment",
         "params": {
-            "requestId": request_id,
-            "payload": payload,
+            "requestId": request_id.as_str(),
+            "payload": payload_hex,
         },
         "id": 1
     });
 
-    post_to_unicity_gateways(&payload, "submit_commitment").await?;
+    post_to_unicity_gateways(&body, "submit_commitment").await?;
 
     // Proof materialization may lag slightly behind acceptance; retry briefly.
     let mut last_err = None;
     for _ in 0..3 {
-        match get_inclusion_proof_hex(&request_id).await {
-            Ok(proof_hex) => return Ok(proof_hex),
+        match get_inclusion_proof_hex(&request_id, &state_id).await {
+            Ok((proof_hex, query_shape)) => {
+                info!(
+                    request_id = request_id.as_str(),
+                    state_id = state_id.as_str(),
+                    query_shape,
+                    "unicity inclusion proof query succeeded"
+                );
+                return Ok(UnicityProof {
+                    request_id: request_id.0.clone(),
+                    state_id: state_id.0.clone(),
+                    proof_hex,
+                    anchored_at_ms: Utc::now().timestamp_millis() as u64,
+                });
+            }
             Err(err) => last_err = Some(err),
         }
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
@@ -128,28 +182,73 @@ pub async fn submit_commitment(receipt: &ChunkReceipt) -> Result<String> {
 }
 
 #[cfg(feature = "unicity")]
-async fn get_inclusion_proof_hex(request_id: &str) -> Result<String> {
-    let payload = serde_json::json!({
+async fn get_inclusion_proof_hex(
+    request_id: &RequestId,
+    state_id: &StateId,
+) -> Result<(String, &'static str)> {
+    // Official aggregator docs show `stateId` for get_inclusion_proof.
+    let state_id_params = serde_json::json!({
+        "stateId": state_id.as_str()
+    });
+    match get_inclusion_proof_with_params(state_id_params).await {
+        Ok(proof_hex) => return Ok((proof_hex, "stateId")),
+        Err(InclusionProofQueryError::InvalidParams(_)) => {
+            let request_id_params = serde_json::json!({
+                "requestId": request_id.as_str()
+            });
+            let proof_hex = match get_inclusion_proof_with_params(request_id_params).await {
+                Ok(proof_hex) => proof_hex,
+                Err(InclusionProofQueryError::InvalidParams(err))
+                | Err(InclusionProofQueryError::Other(err)) => return Err(err),
+            };
+            return Ok((proof_hex, "requestId"));
+        }
+        Err(InclusionProofQueryError::Other(err)) => return Err(err),
+    }
+}
+
+#[cfg(feature = "unicity")]
+async fn get_inclusion_proof_with_params(
+    params: serde_json::Value,
+) -> std::result::Result<String, InclusionProofQueryError> {
+    let body = serde_json::json!({
         "jsonrpc": "2.0",
         "method": "get_inclusion_proof",
-        "params": {
-            "requestId": request_id,
-            "stateId": request_id
-        },
+        "params": params,
         "id": 2
     });
-    let body = post_to_unicity_gateways(&payload, "get_inclusion_proof").await?;
-    let value: serde_json::Value =
-        serde_json::from_str(&body).context("invalid JSON response from get_inclusion_proof")?;
+    let body = post_to_unicity_gateways(&body, "get_inclusion_proof")
+        .await
+        .map_err(InclusionProofQueryError::Other)?;
+    let value: serde_json::Value = serde_json::from_str(&body).map_err(|err| {
+        InclusionProofQueryError::Other(anyhow::anyhow!(
+            "invalid JSON response from get_inclusion_proof: {err}"
+        ))
+    })?;
     if let Some(error) = value.get("error") {
-        anyhow::bail!("Unicity get_inclusion_proof RPC error: {error}");
+        let code = error.get("code").and_then(serde_json::Value::as_i64);
+        let anyhow_err =
+            anyhow::anyhow!("Unicity get_inclusion_proof RPC error code={code:?}: {error}");
+        if code == Some(-32602) {
+            return Err(InclusionProofQueryError::InvalidParams(anyhow_err));
+        }
+        return Err(InclusionProofQueryError::Other(anyhow_err));
     }
-    let result = value
-        .get("result")
-        .cloned()
-        .context("Unicity get_inclusion_proof missing result field")?;
-    let result_bytes = serde_json::to_vec(&result).context("failed to encode inclusion proof")?;
+    let result = value.get("result").cloned().ok_or_else(|| {
+        InclusionProofQueryError::Other(anyhow::anyhow!(
+            "Unicity get_inclusion_proof missing result field"
+        ))
+    })?;
+    let result_bytes = serde_json::to_vec(&result).map_err(|err| {
+        InclusionProofQueryError::Other(anyhow::anyhow!("failed to encode inclusion proof: {err}"))
+    })?;
     Ok(hex::encode(result_bytes))
+}
+
+#[cfg(feature = "unicity")]
+fn derive_state_id(_receipt: &ChunkReceipt, request_id: &RequestId) -> StateId {
+    // For now we mirror request_id until live schema confirms a distinct derivation algorithm.
+    StateId(request_id.0.clone())
 }
 
 #[cfg(feature = "unicity")]
@@ -187,7 +286,7 @@ pub fn provider_identity() -> Result<NodeIdentity> {
     current_identity().context("provider identity unavailable")
 }
 
-fn canonical_payload(receipt: &ChunkReceipt) -> Result<Vec<u8>> {
+pub(crate) fn canonical_payload(receipt: &ChunkReceipt) -> Result<Vec<u8>> {
     #[derive(Serialize)]
     struct Payload<'a> {
         session_id: Uuid,

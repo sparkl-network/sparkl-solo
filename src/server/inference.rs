@@ -142,11 +142,11 @@ pub async fn chat_completions(
                                     let sessions_for_anchor = sessions.clone();
                                     tokio::spawn(async move {
                                         match crate::receipts::submit_commitment(&receipt_for_anchor).await {
-                                            Ok(proof_hex) => {
+                                            Ok(proof) => {
                                                 if let Err(err) = sessions_for_anchor.save_unicity_proof(
                                                     receipt_for_anchor.session_id,
                                                     receipt_for_anchor.seq,
-                                                    &proof_hex,
+                                                    &proof,
                                                 ) {
                                                     warn!(%err, "failed to persist unicity inclusion proof");
                                                 }

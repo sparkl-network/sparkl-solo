@@ -21,7 +21,7 @@ use sparkl_solo::config::{
 use sparkl_solo::identity::{self, NodeIdentity};
 use sparkl_solo::network::{self, SwarmCommand};
 use sparkl_solo::proxy::BackendProxy;
-use sparkl_solo::receipts::ChunkReceipt;
+use sparkl_solo::receipts::{ChunkReceipt, UnicityProof};
 use sparkl_solo::server::{self, AppState};
 use sparkl_solo::session::SessionManager;
 use sparkl_solo::store::Store;
@@ -274,8 +274,14 @@ async fn returns_stored_unicity_proof_for_receipt() {
     let node_addr = spawn(server::router(app_state)).await;
 
     let session_id = sessions.open("mock-model", None);
+    let stored_proof = UnicityProof {
+        request_id: "req-123".to_string(),
+        state_id: "state-123".to_string(),
+        proof_hex: "deadbeef".to_string(),
+        anchored_at_ms: 123456789,
+    };
     sessions
-        .save_unicity_proof(session_id, 7, "deadbeef")
+        .save_unicity_proof(session_id, 7, &stored_proof)
         .expect("save proof");
 
     let client = Client::new();
@@ -294,6 +300,18 @@ async fn returns_stored_unicity_proof_for_receipt() {
     assert_eq!(
         body.get("proof_hex").and_then(Value::as_str),
         Some("deadbeef")
+    );
+    assert_eq!(
+        body.get("request_id").and_then(Value::as_str),
+        Some("req-123")
+    );
+    assert_eq!(
+        body.get("state_id").and_then(Value::as_str),
+        Some("state-123")
+    );
+    assert_eq!(
+        body.get("anchored_at_ms").and_then(Value::as_u64),
+        Some(123456789)
     );
     assert_eq!(
         body.get("session_id").and_then(Value::as_str),

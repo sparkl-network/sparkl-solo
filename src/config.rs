@@ -81,6 +81,7 @@ pub struct AttestationConfig {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct RegistryConfig {
+    #[serde(default = "default_unicity_aggregator_url")]
     pub unicity_aggregator_url: String,
     pub heartbeat_secs: u64,
     pub enabled: bool,
@@ -144,4 +145,8 @@ fn default_allow_non_globals_in_dht() -> bool {
 
 fn default_expose_status_detail() -> bool {
     false
+}
+
+fn default_unicity_aggregator_url() -> String {
+    "https://aggregator.unicity.network/".to_string()
 }

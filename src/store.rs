@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
-use crate::receipts::ChunkReceipt;
+use crate::receipts::{ChunkReceipt, UnicityProof};
 use crate::session::Session;
 use crate::settlement::EpochBatch;
 
@@ -76,24 +76,39 @@ impl Store {
         Ok(())
     }
 
-    pub fn save_unicity_proof(&self, session_id: Uuid, seq: u64, proof_hex: &str) -> Result<()> {
+    pub fn save_unicity_proof(
+        &self,
+        session_id: Uuid,
+        seq: u64,
+        proof: &UnicityProof,
+    ) -> Result<()> {
         let tree = self.db.open_tree("unicity_proofs")?;
         let key = format!("{session_id}:{seq}");
-        tree.insert(key.as_bytes(), proof_hex.as_bytes())?;
+        tree.insert(key.as_bytes(), serde_json::to_vec(proof)?)?;
         tree.flush()?;
         Ok(())
     }
 
-    pub fn load_unicity_proof(&self, session_id: Uuid, seq: u64) -> Result<Option<String>> {
+    pub fn load_unicity_proof(&self, session_id: Uuid, seq: u64) -> Result<Option<UnicityProof>> {
         let tree = self.db.open_tree("unicity_proofs")?;
         let key = format!("{session_id}:{seq}");
         let value = tree.get(key.as_bytes())?;
         let Some(bytes) = value else {
             return Ok(None);
         };
-        Ok(Some(
-            String::from_utf8(bytes.to_vec()).context("invalid unicity proof payload")?,
-        ))
+        if let Ok(proof) = serde_json::from_slice::<UnicityProof>(&bytes) {
+            return Ok(Some(proof));
+        }
+
+        // Backward-compat: legacy records stored raw proof hex as plain UTF-8.
+        let legacy_hex =
+            String::from_utf8(bytes.to_vec()).context("invalid unicity proof payload")?;
+        Ok(Some(UnicityProof {
+            request_id: String::new(),
+            state_id: String::new(),
+            proof_hex: legacy_hex,
+            anchored_at_ms: 0,
+        }))
     }
 
     pub fn prune_old_sessions(&self, older_than: Duration) -> Result<u64> {

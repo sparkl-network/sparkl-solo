@@ -6,7 +6,7 @@ use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::receipts::ChunkReceipt;
+use crate::receipts::{ChunkReceipt, UnicityProof};
 use crate::store::Store;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -149,11 +149,16 @@ impl SessionManager {
             .count()
     }
 
-    pub fn save_unicity_proof(&self, session_id: Uuid, seq: u64, proof_hex: &str) -> Result<()> {
-        self.store.save_unicity_proof(session_id, seq, proof_hex)
+    pub fn save_unicity_proof(
+        &self,
+        session_id: Uuid,
+        seq: u64,
+        proof: &UnicityProof,
+    ) -> Result<()> {
+        self.store.save_unicity_proof(session_id, seq, proof)
     }
 
-    pub fn get_unicity_proof(&self, session_id: Uuid, seq: u64) -> Result<Option<String>> {
+    pub fn get_unicity_proof(&self, session_id: Uuid, seq: u64) -> Result<Option<UnicityProof>> {
         self.store.load_unicity_proof(session_id, seq)
     }
 }
