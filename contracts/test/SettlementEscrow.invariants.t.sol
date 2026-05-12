@@ -183,7 +183,7 @@ contract SettlementEscrowInvariantTest is StdInvariant, Test {
         reg = new ProviderRegistry(owner, attestation);
 
         oracle = new MockOracle();
-        oracle.set(500_000);
+        oracle.set(1_340_000);
 
         usdc = new MockERC20("USDC", 6);
         esc = new SettlementEscrow(reg, oracle, usdc);

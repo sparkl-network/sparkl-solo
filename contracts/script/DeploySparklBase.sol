@@ -11,7 +11,7 @@ import {MockERC20} from "../src/mocks/MockERC20.sol";
 /// @notice Deploy MockOracle + mock USDC + `ProviderRegistry` + `SettlementEscrow` used by deploy scripts.
 /// @dev MVP testnet deployments use mocks; Hub USDC/oracle integrations replace these for production-shaped deploys later.
 abstract contract DeploySparklBase is Script {
-    uint256 internal constant DEFAULT_USDC_PER_DOT = 1_000_000; // MockOracle smallest USDC units per 1e18 DOT
+    uint256 internal constant DEFAULT_USDC_PER_DOT = 1_340_000; // baseline ~1.34 USD/DOT (USDC smallest per 1e18 internal DOT)
 
     struct Deployment {
         address registryOwner;

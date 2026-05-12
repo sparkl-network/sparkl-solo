@@ -108,7 +108,7 @@ After broadcast, inspect `contracts/deployments/paseo.json` for addresses. Manua
 
 ## Configuration notes
 
-- **Oracle:** Primary spot quote is **USDC (6‑dec) smallest units per 1e18 internal DOT** (`IPriceOracle.getUsdcPerDot`). `SettlementEscrow.depositUsdcAsDot` credits internal DOT as `usdcAmount * 1e18 / usdcPerDot`.
+- **Oracle:** Primary spot quote is **USDC (6‑dec) smallest units per 1e18 internal DOT** (`IPriceOracle.getUsdcPerDot`). `SettlementEscrow.depositUsdcAsDot` credits internal DOT as `usdcAmount * 1e18 / usdcPerDot`. MVP mocks and deploy scripts baseline **`getUsdcPerDot() = 1_340_000`** (≈ **1.34 USD** per DOT at par USDC ≈ USD).
 - **Native DOT** in escrow uses **10** Planck-style decimals on-chain vs **18** decimals for internal accounting; see `SettlementEscrow` helpers.
 
 ## Clean artifacts

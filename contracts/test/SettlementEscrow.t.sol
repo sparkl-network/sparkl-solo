@@ -20,8 +20,8 @@ contract SettlementEscrowTest is Test {
     address internal payout = address(0xCAFE);
     address internal alice = address(0xA11CE);
 
-    /// @dev USDC (6-dec) smallest per 1e18 internal DOT: 0.5 USDC per DOT → 1 USDC buys 2 DOT internal.
-    uint256 internal constant USDC_PER_DOT = 500_000;
+    /// @dev USDC (6-dec) smallest per 1e18 internal DOT: baseline ~1.34 USD/DOT (May 2026 spot).
+    uint256 internal constant USDC_PER_DOT = 1_340_000;
 
     function _internalPer1Usdc() internal pure returns (uint256) {
         return (1_000_000 * 1e18) / USDC_PER_DOT;
@@ -52,7 +52,7 @@ contract SettlementEscrowTest is Test {
         assertEq(ts, block.timestamp);
 
         assertEq(oracle.getUsdcPerDot(), USDC_PER_DOT);
-        assertEq(oracle.getDotForUsdc(500_000), 1e18);
+        assertEq(oracle.getDotForUsdc(USDC_PER_DOT), 1e18);
         assertEq(oracle.priceUpdatedAt(), block.timestamp);
     }
 
@@ -94,8 +94,8 @@ contract SettlementEscrowTest is Test {
         esc.depositUsdcAsDot(usdcAmount);
         vm.stopPrank();
 
-        uint256 expInternal = 3 * _internalPer1Usdc();
-        assertEq(expInternal, 3 * 2e18);
+        // Matches contract formula `(usdc * 1e18) / usdcPerDot` (not `3 * per‑1‑USDC` — integer division differs).
+        uint256 expInternal = (usdcAmount * 1e18) / USDC_PER_DOT;
         assertEq(esc.dotBalances(alice), expInternal);
         assertEq(esc.internalCirculating(), expInternal);
         assertEq(usdc.balanceOf(address(esc)), usdcAmount);
