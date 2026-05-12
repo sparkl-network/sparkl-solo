@@ -24,10 +24,13 @@ abstract contract DeploySparklBase is Script {
 
     /// @param registryOwner Passed to `ProviderRegistry.owner` — typically the broadcaster.
     /// @param attestationService `ProviderRegistry` constructor second arg (has `setTEEProof` authority).
-    function deploySparklCore(address registryOwner, address attestationService, uint256 deployerPk)
-        internal
-        returns (Deployment memory d)
-    {
+    /// @param escrowNativeDecimals Hub Asset Hub DOT: 10 (Planck). Anvil / standard EVM: 18 (`msg.value` wei).
+    function deploySparklCore(
+        address registryOwner,
+        address attestationService,
+        uint256 deployerPk,
+        uint8 escrowNativeDecimals
+    ) internal returns (Deployment memory d) {
         d.registryOwner = registryOwner;
         d.attestationService = attestationService;
 
@@ -39,7 +42,7 @@ abstract contract DeploySparklBase is Script {
         MockERC20 usdc = new MockERC20("USDC", 6);
 
         ProviderRegistry registry = new ProviderRegistry(registryOwner, attestationService);
-        SettlementEscrow escrow = new SettlementEscrow(registry, oracle, usdc);
+        SettlementEscrow escrow = new SettlementEscrow(registry, oracle, usdc, escrowNativeDecimals);
 
         vm.stopBroadcast();
 

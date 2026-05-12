@@ -2,6 +2,7 @@
 
 ## Build commands
 - `cargo build --features mock-tpm`
+- `cargo build --features mock-tpm,evm-settlement`
 - `cargo test --features mock-tpm`
 - `cargo test --features tpm`
 - TEE attestation stub (Node): `cd services/tee-attestation-stub && yarn install && yarn start`
@@ -17,7 +18,7 @@
 - NEVER commit identity-secret.json (contains private keys)
 - NEVER commit `services/tee-attestation-stub/.env` (`ADMIN_PRIVATE_KEY`).
 - NEVER change receipt signing without updating tests/integration_test.rs
-- settlement.rs is a stub — hub EVM wiring should land behind an explicit feature flag / reviewed integration
+- Hub EVM settlement: `src/settlement/evm.rs` behind `--features evm-settlement` (requires provider key + settlement operator key matching on-chain `settlementOperator` when `settlement.enabled`).
 - identity.rs has a #[cfg(feature = "tpm")] gate — always test both features
 
 ## Architecture map
@@ -37,7 +38,7 @@
 - Do NOT await Unicity submission in the inference hot path — fire-and-forget via tokio::spawn
 - src/identity.rs — key management, TPM gate here
 - src/registry.rs — STUB, safe to modify
-- src/settlement.rs — STUB, safe to modify
+- src/settlement/ — epoch batches; optional `SettlementEscrow` txs (`evm-settlement`)
 
 ## When adding a new endpoint
 1. Add handler in src/server/

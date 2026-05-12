@@ -1,0 +1,743 @@
+[
+  {
+    "type": "constructor",
+    "inputs": [
+      {
+        "name": "registry_",
+        "type": "address",
+        "internalType": "contract IProviderRegistry"
+      },
+      {
+        "name": "priceOracle_",
+        "type": "address",
+        "internalType": "contract IPriceOracle"
+      },
+      {
+        "name": "usdc_",
+        "type": "address",
+        "internalType": "contract IERC20"
+      },
+      {
+        "name": "nativeDotDecimals_",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "receive",
+    "stateMutability": "payable"
+  },
+  {
+    "type": "function",
+    "name": "depositDot",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "payable"
+  },
+  {
+    "type": "function",
+    "name": "depositUsdcAsDot",
+    "inputs": [
+      {
+        "name": "usdcAmount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "depositUsdcAsDot",
+    "inputs": [
+      {
+        "name": "usdcAmount",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "minDotInternalOut",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "maxOracleAgeSecs",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "dotBalances",
+    "inputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getDotBalances",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "internalCirculating",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "nativeDotDecimals",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "nextSessionId",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "openSession",
+    "inputs": [
+      {
+        "name": "provider",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "tier",
+        "type": "uint8",
+        "internalType": "enum SecurityTier"
+      },
+      {
+        "name": "amountInternal",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "payable"
+  },
+  {
+    "type": "function",
+    "name": "priceOracle",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract IPriceOracle"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "providerBalances",
+    "inputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "recordUsage",
+    "inputs": [
+      {
+        "name": "sessionId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "usageDeltaInternal",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "registry",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract IProviderRegistry"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "sessions",
+    "inputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "provider",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "tier",
+        "type": "uint8",
+        "internalType": "enum SecurityTier"
+      },
+      {
+        "name": "lockedInternal",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "usageRecorded",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "paidToProviderInternal",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "openingInternal",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "openedAt",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "settled",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "setSettlementOperator",
+    "inputs": [
+      {
+        "name": "next",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "settleByOperatorFull",
+    "inputs": [
+      {
+        "name": "sessionId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "toProvider",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "toUser",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "settleByOperatorPartial",
+    "inputs": [
+      {
+        "name": "sessionId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "toProvider",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "toUser",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "settleFull",
+    "inputs": [
+      {
+        "name": "sessionId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "toProvider",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "toUser",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "settlePartial",
+    "inputs": [
+      {
+        "name": "sessionId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "toProvider",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "toUser",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "settlementOperator",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "totalLockedInternal",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "usdc",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract IERC20"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "withdrawDot",
+    "inputs": [
+      {
+        "name": "amountInternal",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "withdrawProviderDot",
+    "inputs": [
+      {
+        "name": "amountInternal",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "event",
+    "name": "DotDeposited",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amountNative",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "creditedInternal",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "DotWithdrawn",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "burnedInternal",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "paidNative",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "ProviderDotWithdrawn",
+    "inputs": [
+      {
+        "name": "provider",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "burnedInternal",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "paidNative",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "SessionFundsReleased",
+    "inputs": [
+      {
+        "name": "sessionId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "toProvider",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "toUser",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "remainingLockedInternal",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "SessionOpened",
+    "inputs": [
+      {
+        "name": "sessionId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "user",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "provider",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "tier",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "enum SecurityTier"
+      },
+      {
+        "name": "lockedInternal",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "SettlementOperatorUpdated",
+    "inputs": [
+      {
+        "name": "previous",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "next",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "UsageRecorded",
+    "inputs": [
+      {
+        "name": "sessionId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "usageTotalInternal",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "UsdcDepositedAsDot",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "usdcAmount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "creditedInternal",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "error",
+    "name": "AlreadySettled",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "BadAmount",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "BadNativeDecimals",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "BadSettleSplit",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InsufficientBalance",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotRegistryOwner",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotSessionProvider",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotSessionUser",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotSettlementOperator",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "OracleStale",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "Slippage",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "TransferFailed",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "UnknownSession",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "UnsupportedTier",
+    "inputs": []
+  }
+]

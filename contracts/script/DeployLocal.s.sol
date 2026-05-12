@@ -16,7 +16,7 @@ contract DeployLocal is DeploySparklBase {
         uint256 pk = vm.envOr("PRIVATE_KEY", ANVIL_DEFAULT_PK);
         address deployer = vm.addr(pk);
 
-        Deployment memory dep = deploySparklCore(deployer, deployer, pk);
+        Deployment memory dep = deploySparklCore(deployer, deployer, pk, 18);
 
         console2.log("deployer", deployer);
         console2.log("MockOracle", dep.mockOracle);

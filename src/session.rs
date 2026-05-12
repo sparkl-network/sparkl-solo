@@ -9,6 +9,15 @@ use uuid::Uuid;
 use crate::receipts::{ChunkReceipt, UnicityProof};
 use crate::store::Store;
 
+/// Mirrors `SecurityTier` in Hub EVM contracts (`contracts/src/SecurityTypes.sol`).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SecurityTier {
+    #[default]
+    BestEffort,
+    TeeVerified,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum SessionState {
     Opening,
@@ -33,6 +42,14 @@ pub struct Session {
     pub receipts: Vec<ChunkReceipt>,
     pub last_receipt_seq: u64,
     pub amount_micro_usd: u64,
+    #[serde(default)]
+    pub security_tier: SecurityTier,
+    /// On-chain `SettlementEscrow` session id when EVM settlement is used (`nextSessionId - 1` at open).
+    #[serde(default)]
+    pub evm_session_id: Option<u64>,
+    /// Tokens-output watermark after the last successful `TEE_VERIFIED` streaming partial settle on escrow.
+    #[serde(default)]
+    pub evm_tee_anchor_tokens: u64,
 }
 
 #[derive(Clone)]
@@ -49,7 +66,12 @@ impl SessionManager {
         }
     }
 
-    pub fn open(&self, model: &str, consumer_pubkey: Option<[u8; 32]>) -> Uuid {
+    pub fn open(
+        &self,
+        model: &str,
+        consumer_pubkey: Option<[u8; 32]>,
+        security_tier: SecurityTier,
+    ) -> Uuid {
         let id = Uuid::new_v4();
         let session = Session {
             id,
@@ -63,6 +85,9 @@ impl SessionManager {
             receipts: Vec::new(),
             last_receipt_seq: 0,
             amount_micro_usd: 0,
+            security_tier,
+            evm_session_id: None,
+            evm_tee_anchor_tokens: 0,
         };
         let _ = self.store.save_session(&session);
         self.sessions.insert(id, Arc::new(Mutex::new(session)));
@@ -125,6 +150,59 @@ impl SessionManager {
                 }
             })
             .collect()
+    }
+
+    /// Completed sessions on the **best-effort** tier — settle only at coarse `[settlement] epoch_secs` ticks.
+    pub fn pending_best_effort_completed_settlement(&self) -> Vec<Session> {
+        self.sessions
+            .iter()
+            .filter_map(|entry| {
+                let guard = entry.lock().ok()?;
+                if guard.state == SessionState::Completed
+                    && guard.security_tier == SecurityTier::BestEffort
+                {
+                    Some(guard.clone())
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    /// `TEE_VERIFIED` sessions with EVM linkage: active streams crossing a token gate, or completed finals.
+    pub fn tee_touch_candidates(&self, tokens_threshold: u64) -> Vec<Session> {
+        self.sessions
+            .iter()
+            .filter_map(|entry| {
+                let guard = entry.lock().ok()?;
+                if guard.security_tier != SecurityTier::TeeVerified || guard.evm_session_id.is_none()
+                {
+                    return None;
+                }
+                match guard.state {
+                    SessionState::Completed => Some(guard.clone()),
+                    SessionState::Active => {
+                        let delta = guard
+                            .tokens_output
+                            .saturating_sub(guard.evm_tee_anchor_tokens);
+                        if delta >= tokens_threshold.max(1) {
+                            Some(guard.clone())
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                }
+            })
+            .collect()
+    }
+
+    pub fn update_evm_tee_anchor_tokens(&self, id: Uuid, anchor_tokens: u64) {
+        if let Some(entry) = self.sessions.get(&id) {
+            let mut guard = entry.lock().expect("session lock poisoned");
+            guard.evm_tee_anchor_tokens = anchor_tokens;
+            let _ = self.store.save_session(&guard);
+        }
     }
 
     pub fn recover_from_store(&self) -> Result<()> {

@@ -44,12 +44,12 @@ contract SettlementEscrowInvariantHandler is Test {
         provider1 = p1;
 
         vm.prank(p0);
-        reg.registerProvider(payoutAddr, true, true, "");
+        reg.registerNode(p0, payoutAddr, true, true, "");
         vm.prank(attestation_);
         reg.setTEEProof(p0, bytes32(uint256(0xA11CE)));
 
         vm.prank(p1);
-        reg.registerProvider(payoutAddr, true, true, "");
+        reg.registerNode(p1, payoutAddr, true, true, "");
         vm.prank(attestation_);
         reg.setTEEProof(p1, bytes32(uint256(0xB22CE)));
 
@@ -91,10 +91,11 @@ contract SettlementEscrowInvariantHandler is Test {
         uint256 n = escrow.nextSessionId();
         if (n == 0) return;
         uint256 sid = bound(seed, 0, n - 1);
-        (,,,,,,, bool settled) = escrow.sessions(sid);
+        (,,,,,,,, bool settled) = escrow.sessions(sid);
         if (settled) return;
 
-        (, address providerAddr,,,,,,) = escrow.sessions(sid);
+        (address _u0, address providerAddr,, uint256 _locked, uint256 _usage, uint256 _paid, uint256 _opening, uint64 _opened, bool _st0) =
+            escrow.sessions(sid);
         usageAmt = bound(usageAmt, 1, (10 ** 18));
 
         vm.prank(providerAddr);
@@ -105,7 +106,15 @@ contract SettlementEscrowInvariantHandler is Test {
         uint256 n = escrow.nextSessionId();
         if (n == 0) return;
         uint256 sid = seed % n;
-        (address user, address providerAddr,, uint256 locked,,,, bool settled) = escrow.sessions(sid);
+        (
+            address user,
+            address providerAddr,, uint256 locked,
+            uint256 _usageRecorded,
+            uint256 _paidToProvider,
+            uint256 _openingInternal,
+            uint64 _openedAt,
+            bool settled
+        ) = escrow.sessions(sid);
         if (settled || locked == 0 || user != alice) return;
 
         uint256 mix = uint256(keccak256(abi.encode(seed, a, b)));
@@ -123,7 +132,15 @@ contract SettlementEscrowInvariantHandler is Test {
         uint256 n = escrow.nextSessionId();
         if (n == 0) return;
         uint256 sid = seed % n;
-        (address user, address p,, uint256 locked,,,, bool settled) = escrow.sessions(sid);
+        (
+            address user,
+            address p,, uint256 locked,
+            uint256 _usageRecorded,
+            uint256 _paidToProvider,
+            uint256 _openingInternal,
+            uint64 _openedAt,
+            bool settled
+        ) = escrow.sessions(sid);
         if (settled || locked == 0 || user != alice) return;
 
         uint256 half = locked / 2;
@@ -186,7 +203,7 @@ contract SettlementEscrowInvariantTest is StdInvariant, Test {
         oracle.set(1_340_000);
 
         usdc = new MockERC20("USDC", 6);
-        esc = new SettlementEscrow(reg, oracle, usdc);
+        esc = new SettlementEscrow(reg, oracle, usdc, 10);
         handler = new SettlementEscrowInvariantHandler(esc, reg, oracle, usdc, alice, p0, p1, attestation);
 
         targetContract(address(handler));

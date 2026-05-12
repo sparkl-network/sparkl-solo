@@ -16,7 +16,7 @@ contract DeployPaseo is DeploySparklBase {
 
         address attest = vm.envOr("ATTESTATION_SERVICE", deployer);
 
-        Deployment memory dep = deploySparklCore(deployer, attest, pk);
+        Deployment memory dep = deploySparklCore(deployer, attest, pk, 10);
 
         string memory jsonPath = "deployments/paseo.json";
         if (vm.envExists("DEPLOYMENTS_OUT")) {

@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1"
+alloy = { version = "2.0.4", default-features = false, features = ["provider-http", "signer-local", "contract", "reqwest", "reqwest-rustls-tls"], optional = true }
 async-stream = "0.3"
 axum = { version = "0.8", features = ["json"] }
 base64 = "0.22"
@@ -44,6 +45,7 @@ mock-tpm = []
 tpm = []
 # Enables async receipt anchoring to Unicity testnet gateway.
 unicity = []
+evm-settlement = ["dep:alloy"]
 
 [dev-dependencies]
 tempfile = "3"

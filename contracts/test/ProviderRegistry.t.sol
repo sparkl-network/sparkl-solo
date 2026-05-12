@@ -3,14 +3,15 @@ pragma solidity ^0.8.20;
 
 import {Test} from "forge-std/Test.sol";
 import {ProviderRegistry} from "../src/ProviderRegistry.sol";
-import {SecurityTier, ProviderInfo} from "../src/SecurityTypes.sol";
+import {SecurityTier, NodeInfo} from "../src/SecurityTypes.sol";
 
 contract ProviderRegistryTest is Test {
     ProviderRegistry internal reg;
 
     address internal owner = address(0xAce0);
     address internal attestation = address(0xA777);
-    address internal provider = address(0xB00B);
+    address internal operator = address(0xB00B);
+    address internal nodeId = address(0xC0DE);
     address internal payout = address(0xCAFE);
 
     function setUp() public {
@@ -18,114 +19,143 @@ contract ProviderRegistryTest is Test {
         reg = new ProviderRegistry(owner, attestation);
     }
 
-    function test_registerProvider_setPricing_metadata() public {
-        vm.startPrank(provider);
-        reg.registerProvider(payout, true, true, "ipfs://meta");
+    function test_registerNode_setNodePricing_metadata() public {
+        vm.startPrank(operator);
+        reg.registerNode(nodeId, payout, true, true, "ipfs://meta");
         vm.stopPrank();
 
-        ProviderInfo memory p = reg.getProvider(provider);
-        assertEq(p.payout, payout);
-        assertTrue(p.active);
-        assertTrue(p.supportsBestEffort);
-        assertFalse(p.supportsTEE);
-        assertEq(p.teeReportHash, bytes32(0));
-        assertEq(keccak256(bytes(reg.getMetadataURI(provider))), keccak256(bytes("ipfs://meta")));
+        assertEq(reg.nodeOperator(nodeId), operator);
+        address[] memory on = reg.operatorNodes(operator);
+        assertEq(on.length, 1);
+        assertEq(on[0], nodeId);
 
-        vm.prank(provider);
-        reg.setPricing(SecurityTier.BEST_EFFORT, 123);
-        assertEq(reg.getPricePer1k(provider, SecurityTier.BEST_EFFORT), 123);
+        NodeInfo memory n = reg.getProvider(nodeId);
+        assertEq(n.payout, payout);
+        assertTrue(n.active);
+        assertTrue(n.supportsBestEffort);
+        assertTrue(n.supportsTEE);
+        assertEq(n.teeReportHash, bytes32(0));
+        assertEq(keccak256(bytes(n.metadataURI)), keccak256(bytes("ipfs://meta")));
+        assertEq(keccak256(bytes(reg.getMetadataURI(nodeId))), keccak256(bytes("ipfs://meta")));
 
-        vm.prank(provider);
-        reg.setPricing(SecurityTier.TEE_VERIFIED, 456);
-        assertEq(reg.getPricePer1k(provider, SecurityTier.TEE_VERIFIED), 456);
+        vm.prank(operator);
+        reg.setNodePricing(nodeId, SecurityTier.BEST_EFFORT, 123);
+        assertEq(reg.getPricePer1k(nodeId, SecurityTier.BEST_EFFORT), 123);
+
+        vm.prank(operator);
+        reg.setNodePricing(nodeId, SecurityTier.TEE_VERIFIED, 456);
+        assertEq(reg.getPricePer1k(nodeId, SecurityTier.TEE_VERIFIED), 456);
+    }
+
+    function test_registerNode_zeroPayout_defaultsToOperator() public {
+        vm.prank(operator);
+        reg.registerNode(nodeId, address(0), true, false, "");
+        assertEq(reg.getProvider(nodeId).payout, operator);
     }
 
     function test_supportsTier_bestEffort_inactive() public {
-        vm.prank(provider);
-        reg.registerProvider(payout, true, false, "");
-        assertTrue(reg.supportsTier(provider, SecurityTier.BEST_EFFORT));
+        vm.prank(operator);
+        reg.registerNode(nodeId, payout, true, false, "");
+        assertTrue(reg.supportsTier(nodeId, SecurityTier.BEST_EFFORT));
 
-        vm.prank(provider);
-        reg.setProviderActive(false);
-        assertFalse(reg.supportsTier(provider, SecurityTier.BEST_EFFORT));
+        vm.prank(operator);
+        reg.setNodeActive(nodeId, false);
+        assertFalse(reg.supportsTier(nodeId, SecurityTier.BEST_EFFORT));
     }
 
     function test_supportsTier_bestEffort_falseWhenNotSupported() public {
-        vm.prank(provider);
-        reg.registerProvider(payout, false, false, "");
-        assertFalse(reg.supportsTier(provider, SecurityTier.BEST_EFFORT));
+        vm.prank(operator);
+        reg.registerNode(nodeId, payout, false, false, "");
+        assertFalse(reg.supportsTier(nodeId, SecurityTier.BEST_EFFORT));
     }
 
-    function test_supportsTier_teeOnlyProvider_rejectsBestEffort() public {
-        address teeOnly = address(0xC0DE);
-        vm.prank(teeOnly);
-        reg.registerProvider(payout, false, true, "");
+    function test_supportsTier_teeOnlyNode_rejectsBestEffort() public {
+        address teeOnlyNode = address(0xC0DE2);
+        vm.prank(operator);
+        reg.registerNode(teeOnlyNode, payout, false, true, "");
         vm.prank(attestation);
-        reg.setTEEProof(teeOnly, bytes32(uint256(0x99)));
+        reg.setTEEProof(teeOnlyNode, bytes32(uint256(0x99)));
 
-        assertFalse(reg.supportsTier(teeOnly, SecurityTier.BEST_EFFORT));
-        assertTrue(reg.supportsTier(teeOnly, SecurityTier.TEE_VERIFIED));
+        assertFalse(reg.supportsTier(teeOnlyNode, SecurityTier.BEST_EFFORT));
+        assertTrue(reg.supportsTier(teeOnlyNode, SecurityTier.TEE_VERIFIED));
     }
 
-    function test_supportsTier_teeOnlyAfterProof() public {
-        vm.prank(provider);
-        reg.registerProvider(payout, true, true, "");
-        assertFalse(reg.supportsTier(provider, SecurityTier.TEE_VERIFIED));
+    function test_supportsTier_teeDeclaredButNeedsProofForTier() public {
+        vm.prank(operator);
+        reg.registerNode(nodeId, payout, true, true, "");
+        assertFalse(reg.supportsTier(nodeId, SecurityTier.TEE_VERIFIED));
 
         vm.prank(attestation);
-        reg.setTEEProof(provider, bytes32(uint256(1)));
-        assertTrue(reg.supportsTier(provider, SecurityTier.TEE_VERIFIED));
+        reg.setTEEProof(nodeId, bytes32(uint256(1)));
+        assertTrue(reg.supportsTier(nodeId, SecurityTier.TEE_VERIFIED));
 
-        ProviderInfo memory p = reg.getProvider(provider);
-        assertTrue(p.supportsTEE);
-        assertEq(p.teeReportHash, bytes32(uint256(1)));
+        NodeInfo memory n = reg.getProvider(nodeId);
+        assertTrue(n.supportsTEE);
+        assertEq(n.teeReportHash, bytes32(uint256(1)));
     }
 
     function test_setTEEProof_revert_notAttestation() public {
-        vm.prank(provider);
-        reg.registerProvider(payout, true, false, "");
+        vm.prank(operator);
+        reg.registerNode(nodeId, payout, true, false, "");
 
         vm.prank(address(0xDEAD));
         vm.expectRevert(ProviderRegistry.NotAttestationService.selector);
-        reg.setTEEProof(provider, bytes32(uint256(1)));
+        reg.setTEEProof(nodeId, bytes32(uint256(1)));
     }
 
     function test_setTEEProof_revert_zeroHash() public {
-        vm.prank(provider);
-        reg.registerProvider(payout, true, false, "");
+        vm.prank(operator);
+        reg.registerNode(nodeId, payout, true, false, "");
 
         vm.prank(attestation);
         vm.expectRevert(ProviderRegistry.InvalidTEEProof.selector);
-        reg.setTEEProof(provider, bytes32(0));
+        reg.setTEEProof(nodeId, bytes32(0));
     }
 
     function test_setTEEProof_revert_unregistered() public {
         vm.prank(attestation);
-        vm.expectRevert(ProviderRegistry.ProviderNotRegistered.selector);
-        reg.setTEEProof(provider, bytes32(uint256(1)));
+        vm.expectRevert(ProviderRegistry.NodeNotRegistered.selector);
+        reg.setTEEProof(nodeId, bytes32(uint256(1)));
     }
 
-    function test_setProviderPayout_and_fee() public {
-        vm.prank(provider);
-        reg.registerProvider(payout, true, false, "");
+    function test_setNodePayout_and_fee() public {
+        vm.prank(operator);
+        reg.registerNode(nodeId, payout, true, false, "");
 
         address p2 = address(0x1111);
-        vm.prank(provider);
-        reg.setProviderPayout(p2);
-        assertEq(reg.getProvider(provider).payout, p2);
+        vm.prank(operator);
+        reg.setNodePayout(nodeId, p2);
+        assertEq(reg.getProvider(nodeId).payout, p2);
 
         vm.prank(owner);
-        reg.setProviderFee(provider, 100);
-        assertEq(reg.getProvider(provider).feeBps, 100);
+        reg.setNodeFee(nodeId, 100);
+        assertEq(reg.getProvider(nodeId).feeBps, 100);
     }
 
-    function test_setProviderFee_revert_notOwner() public {
-        vm.prank(provider);
-        reg.registerProvider(payout, true, false, "");
+    function test_setNodeFee_revert_notOwner() public {
+        vm.prank(operator);
+        reg.registerNode(nodeId, payout, true, false, "");
 
-        vm.prank(provider);
+        vm.prank(operator);
         vm.expectRevert(ProviderRegistry.NotOwner.selector);
-        reg.setProviderFee(provider, 1);
+        reg.setNodeFee(nodeId, 1);
+    }
+
+    function test_onlyNodeOperator_revert() public {
+        vm.prank(operator);
+        reg.registerNode(nodeId, payout, true, false, "");
+
+        vm.prank(address(0xBAD));
+        vm.expectRevert(ProviderRegistry.NotNodeOperator.selector);
+        reg.setNodeActive(nodeId, false);
+    }
+
+    function test_registerNode_revert_twice() public {
+        vm.startPrank(operator);
+        reg.registerNode(nodeId, payout, true, false, "");
+        vm.expectRevert(ProviderRegistry.NodeAlreadyRegistered.selector);
+        reg.registerNode(nodeId, payout, true, false, "");
+        vm.stopPrank();
     }
 
     function test_transferOwnership_and_attestationService() public {

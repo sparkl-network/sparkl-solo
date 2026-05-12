@@ -6,6 +6,8 @@ mode = "solo"
 receipt_cadence_tokens = 50
 include_models = []
 exclude_models = []
+# Session security tier for inference (`best_effort` | `tee_verified`).
+session_security_tier = "best_effort"
 
 [network]
 # list of listen addresses for libp2p - TCP and QUIC
@@ -51,6 +53,19 @@ epoch_secs = 600
 evm_rpc_url = "https://YOUR_POLKADOT_HUB_EVM_RPC"
 escrow_contract = "0x0000000000000000000000000000000000000000"
 enabled = false
+# Required when building with `--features evm-settlement` and settlement.enabled = true:
+# evm_provider_wallet_private_key = "0x..."
+# evm_settlement_operator_wallet_private_key = "0x..."  # must match escrow.settlementOperator (set by registry owner)
+# Maps micro-USD bill to internal escrow units (placeholder scale).
+usage_internal_units_per_micro_usd = 1000000000000
+# TEE-verified streaming settlement cadence (wall clock seconds).
+tee_tick_secs = 60
+# Minimum output-token delta since last TEE anchor before attempting partial settle.
+tee_settle_tokens_threshold = 256
+# Allowed usageRecorded slack vs local bill for TEE paths (basis points).
+usage_tolerance_bps = 100
+# Optional block throttle between TEE settle attempts (0 = disabled).
+tee_settle_every_n_blocks = 0
 
 [pricing]
 micro_usd_per_m_input_tokens = 100

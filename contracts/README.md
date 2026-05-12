@@ -76,7 +76,7 @@ Tests cover `ProviderRegistry`, `SettlementEscrow`, USDC→internal DOT conversi
 
    By default the script uses Anvil’s first test private key; override with `PRIVATE_KEY` in the environment if needed.
 
-3. Console output lists deployed addresses: `MockOracle`, `MockERC20`, `ProviderRegistry`, `SettlementEscrow`.
+3. Console output lists deployed addresses: `MockOracle`, `MockERC20`, `ProviderRegistry`, `SettlementEscrow` (escrow uses **`nativeDotDecimals = 18`** so `depositDot` matches Anvil wei / ETH display).
 
 Docker example (Anvil + script in one shot is possible but fragile; two terminals or `anvil` in background is clearer.)
 
@@ -109,7 +109,7 @@ After broadcast, inspect `contracts/deployments/paseo.json` for addresses. Manua
 ## Configuration notes
 
 - **Oracle:** Primary spot quote is **USDC (6‑dec) smallest units per 1e18 internal DOT** (`IPriceOracle.getUsdcPerDot`). `SettlementEscrow.depositUsdcAsDot` credits internal DOT as `usdcAmount * 1e18 / usdcPerDot`. MVP mocks and deploy scripts baseline **`getUsdcPerDot() = 1_340_000`** (≈ **1.34 USD** per DOT at par USDC ≈ USD).
-- **Native DOT** in escrow uses **10** Planck-style decimals on-chain vs **18** decimals for internal accounting; see `SettlementEscrow` helpers.
+- **Native DOT** in escrow: constructor **`nativeDotDecimals`** — **`10`** on Polkadot Asset Hub (Planck), **`18`** for **`DeployLocal`** on Anvil (wei). Internal balances always use **18** decimals per whole DOT; see `SettlementEscrow` helpers.
 
 ## Security review
 
