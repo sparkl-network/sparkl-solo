@@ -108,6 +108,7 @@ contract ProviderRegistry is IProviderRegistry {
     }
 
     /// @notice Attestation service records evidence; this is the on-chain source of truth for Tier A (`TEE_VERIFIED`).
+    /// @dev MVP stub: sibling folder services/tee-attestation-stub; verify attestation payloads before production use.
     function setTEEProof(address provider, bytes32 teeReportHash) external onlyAttestationService {
         if (_providers[provider].payout == address(0)) revert ProviderNotRegistered();
         if (teeReportHash == bytes32(0)) revert InvalidTEEProof();

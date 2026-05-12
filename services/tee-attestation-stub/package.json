@@ -1,0 +1,19 @@
+{
+  "name": "tee-attestation-stub",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "MVP TEE attestation stub: provider PoP via challenge signature, then ProviderRegistry.setTEEProof(keccak256(report)).",
+  "main": "src/server.mjs",
+  "scripts": {
+    "start": "node src/server.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "ethers": "^6.13.5",
+    "express": "^4.21.2"
+  }
+}

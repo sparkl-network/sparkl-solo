@@ -26,5 +26,6 @@ target
 dev-data/
 sparkl-solo.log
 
-# JS test harness deps
+# JS test harness deps / attestation stubs
 tests-js/node_modules/
+services/*/node_modules/

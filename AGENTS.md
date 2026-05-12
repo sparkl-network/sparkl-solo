@@ -4,6 +4,7 @@
 - `cargo build --features mock-tpm`
 - `cargo test --features mock-tpm`
 - `cargo test --features tpm`
+- TEE attestation stub (Node): `cd services/tee-attestation-stub && yarn install && yarn start`
 
 ## Test commands (JS integration suite)
 - `cd tests-js && yarn install && yarn tpm:suite`
@@ -14,6 +15,7 @@
 
 ## Important constraints
 - NEVER commit identity-secret.json (contains private keys)
+- NEVER commit `services/tee-attestation-stub/.env` (`ADMIN_PRIVATE_KEY`).
 - NEVER change receipt signing without updating tests/integration_test.rs
 - settlement.rs is a stub — hub EVM wiring should land behind an explicit feature flag / reviewed integration
 - identity.rs has a #[cfg(feature = "tpm")] gate — always test both features
@@ -22,7 +24,7 @@
 
 **Target (on-chain):** Polkadot Hub EVM (`pallet_revive`) — `SettlementEscrow`, `ProviderRegistry`, `IPriceOracle` (see `contracts/`). Tier A = TEE-verified (attestation service writes proof on-chain); Tier B = best-effort.
 
-**Target (off-chain):** attestation service, aggregators (tier + price routing).
+**Target (off-chain):** attestation service, aggregators (tier + price routing). **MVP TEE onboarding:** HTTP stub [`services/tee-attestation-stub/README.md`](./services/tee-attestation-stub/README.md) (`GET /v1/challenge`, `POST /v1/attest` → on-chain [`ProviderRegistry.setTEEProof`](./contracts/src/ProviderRegistry.sol)); **`ADMIN_PRIVATE_KEY` must equal `attestationService` on the registry.**
 
 **Legacy / optional:** Unicity JSON-RPC when built with `--features unicity`.
 

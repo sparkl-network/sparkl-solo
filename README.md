@@ -12,7 +12,7 @@ Sparkl is a decentralized private AI inference network for routing model request
 
 **On-chain:** `SettlementEscrow`, `ProviderRegistry` (payouts, per-tier pricing, TEE flags / evidence hash), and `IPriceOracle` (USDC↔DOT; DIA for MVP, Pyth later) — see [`contracts/`](./contracts/).
 
-**Off-chain:** an attestation service that verifies TEE quotes and writes **TEE verified** on-chain; aggregators that route by tier and price.
+**Off-chain:** an attestation service that verifies TEE quotes and writes **TEE verified** on-chain (MVP stub: [`services/tee-attestation-stub/`](./services/tee-attestation-stub/README.md)); aggregators that route by tier and price.
 
 **Provider nodes:** Tier A on SGX/TDX/SEV/TrustZone/Nitro-class hardware; Tier B on any GPU/CPU platform.
 
