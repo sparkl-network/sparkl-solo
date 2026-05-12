@@ -1,6 +1,7 @@
 # Builds and tests Solidity under contracts/ via Foundry — native toolchain and Docker (README parity).
 #
 # Branch protection: require the check named "contracts" so merges are blocked unless both matrix legs pass.
+# pull_request has no paths filter on purpose so the "contracts" check always runs and required status stays unambiguous.
 
 name: contracts
 
