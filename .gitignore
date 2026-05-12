@@ -24,6 +24,7 @@ target
 # Local runtime state and keys
 .sparkl-data/
 dev-data/
+sparkl-solo.log
 
 # JS test harness deps
 tests-js/node_modules/
