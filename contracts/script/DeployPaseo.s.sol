@@ -14,8 +14,7 @@ contract DeployPaseo is DeploySparklBase {
         uint256 pk = vm.envUint("PRIVATE_KEY");
         address deployer = vm.addr(pk);
 
-        address attest =
-            vm.envOr("ATTESTATION_SERVICE", deployer);
+        address attest = vm.envOr("ATTESTATION_SERVICE", deployer);
 
         Deployment memory dep = deploySparklCore(deployer, attest, pk);
 
@@ -37,9 +36,7 @@ contract DeployPaseo is DeploySparklBase {
         console2.log("wrote deployments file", jsonPath);
     }
 
-    function _writeDeployJson(Deployment memory dep, address deployer, uint256 chainId, string memory path)
-        internal
-    {
+    function _writeDeployJson(Deployment memory dep, address deployer, uint256 chainId, string memory path) internal {
         string memory root = "paseo";
         vm.serializeString(root, "network", "paseo-hub-evm");
         vm.serializeUint(root, "chainId", chainId);

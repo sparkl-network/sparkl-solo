@@ -17,7 +17,13 @@ contract DIAPriceOracle is IPriceOracle {
     error BadPrice();
     error ZeroUsdcPrice();
 
-    constructor(IDIAOracle dotUsd, IDIAOracle usdcUsd_, string memory dotKey_, string memory usdcKey_, uint8 feedDecimals_) {
+    constructor(
+        IDIAOracle dotUsd,
+        IDIAOracle usdcUsd_,
+        string memory dotKey_,
+        string memory usdcKey_,
+        uint8 feedDecimals_
+    ) {
         dotUsdFeed = dotUsd;
         usdcUsdFeed = usdcUsd_;
         dotKey = dotKey_;

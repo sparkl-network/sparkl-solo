@@ -17,11 +17,7 @@ contract ProviderRegistry is IProviderRegistry {
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
     event AttestationServiceUpdated(address indexed previous, address indexed next);
     event ProviderRegistered(
-        address indexed provider,
-        address payout,
-        bool supportsBestEffort,
-        bool supportsTEE,
-        string metadataURI
+        address indexed provider, address payout, bool supportsBestEffort, bool supportsTEE, string metadataURI
     );
     event ProviderPayoutUpdated(address indexed provider, address payout);
     event ProviderActiveUpdated(address indexed provider, bool active);
@@ -63,12 +59,9 @@ contract ProviderRegistry is IProviderRegistry {
     }
 
     /// @notice Provider self-registration. `feeBps` defaults to 0; use `setProviderFee` (owner) for platform rev-share if needed.
-    function registerProvider(
-        address payout,
-        bool supportsBestEffort,
-        bool supportsTEE,
-        string calldata metadataURI
-    ) external {
+    function registerProvider(address payout, bool supportsBestEffort, bool supportsTEE, string calldata metadataURI)
+        external
+    {
         address provider = msg.sender;
         if (payout == address(0)) revert ZeroAddress();
 

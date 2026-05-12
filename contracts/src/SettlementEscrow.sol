@@ -46,10 +46,16 @@ contract SettlementEscrow {
     event ProviderDotWithdrawn(address indexed provider, uint256 burnedInternal, uint256 paidNative);
     event UsdcDepositedAsDot(address indexed user, uint256 usdcAmount, uint256 creditedInternal);
     event SessionOpened(
-        uint256 indexed sessionId, address indexed user, address indexed provider, SecurityTier tier, uint256 lockedInternal
+        uint256 indexed sessionId,
+        address indexed user,
+        address indexed provider,
+        SecurityTier tier,
+        uint256 lockedInternal
     );
     event UsageRecorded(uint256 indexed sessionId, uint256 usageTotalInternal);
-    event SessionFundsReleased(uint256 indexed sessionId, uint256 toProvider, uint256 toUser, uint256 remainingLockedInternal);
+    event SessionFundsReleased(
+        uint256 indexed sessionId, uint256 toProvider, uint256 toUser, uint256 remainingLockedInternal
+    );
 
     error UnsupportedTier();
     error BadAmount();
@@ -106,12 +112,15 @@ contract SettlementEscrow {
             uint256 pu = priceOracle.priceUpdatedAt();
             if (pu == 0 || block.timestamp > pu + maxOracleAgeSecs) revert OracleStale();
         }
-        if (!usdc.transferFrom(msg.sender, address(this), usdcAmount)) revert TransferFailed();
+
         uint256 usdcPerDot = priceOracle.getUsdcPerDot();
         if (usdcPerDot == 0) revert BadAmount();
         uint256 credited = (usdcAmount * 1e18) / usdcPerDot;
         if (credited == 0) revert BadAmount();
         if (minDotInternalOut != 0 && credited < minDotInternalOut) revert Slippage();
+
+        if (!usdc.transferFrom(msg.sender, address(this), usdcAmount)) revert TransferFailed();
+
         dotBalances[msg.sender] += credited;
         internalCirculating += credited;
         emit UsdcDepositedAsDot(msg.sender, usdcAmount, credited);

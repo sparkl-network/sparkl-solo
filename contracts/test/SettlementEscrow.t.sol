@@ -186,8 +186,16 @@ contract SettlementEscrowTest is Test {
         esc.openSession(providerB, SecurityTier.BEST_EFFORT, amountInternal);
 
         assertEq(esc.nextSessionId(), 1);
-        (address u, address p, SecurityTier t, uint256 locked, uint256 usage, uint256 opening, uint64 opened, bool settled) =
-            esc.sessions(0);
+        (
+            address u,
+            address p,
+            SecurityTier t,
+            uint256 locked,
+            uint256 usage,
+            uint256 opening,
+            uint64 opened,
+            bool settled
+        ) = esc.sessions(0);
         assertEq(u, alice);
         assertEq(p, providerB);
         assertEq(uint8(t), uint8(SecurityTier.BEST_EFFORT));
@@ -290,9 +298,9 @@ contract SettlementEscrowTest is Test {
 
         vm.prank(providerA);
         esc.recordUsage(0, 2 * 10 ** 18);
-        (, , , uint256 lockedAfterRecord,,,,) = esc.sessions(0);
+        (,,, uint256 lockedAfterRecord,,,,) = esc.sessions(0);
         assertEq(lockedAfterRecord, lockAmt);
-        (, , , , uint256 usage,,,) = esc.sessions(0);
+        (,,,, uint256 usage,,,) = esc.sessions(0);
         assertEq(usage, 3 * 10 ** 18);
 
         vm.prank(alice);
@@ -300,7 +308,7 @@ contract SettlementEscrowTest is Test {
         assertEq(esc.providerBalances(providerA), 4 * 10 ** 18);
         assertEq(esc.dotBalances(alice), 1 * 10 ** 18);
         assertEq(esc.totalLockedInternal(), 5 * 10 ** 18);
-        (, , , uint256 locked2,,,, bool settledMid) = esc.sessions(0);
+        (,,, uint256 locked2,,,, bool settledMid) = esc.sessions(0);
         assertEq(locked2, 5 * 10 ** 18);
         assertFalse(settledMid);
 
@@ -308,7 +316,7 @@ contract SettlementEscrowTest is Test {
         esc.settleFull(0, 5 * 10 ** 18, 0);
         assertEq(esc.totalLockedInternal(), 0);
 
-        (, , , uint256 locked3,,,, bool settledFinal) = esc.sessions(0);
+        (,,, uint256 locked3,,,, bool settledFinal) = esc.sessions(0);
         assertEq(locked3, 0);
         assertTrue(settledFinal);
 
