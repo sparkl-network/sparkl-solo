@@ -83,6 +83,10 @@ pub struct AttestationConfig {
 pub struct RegistryConfig {
     #[serde(default = "default_unicity_aggregator_url")]
     pub unicity_aggregator_url: String,
+    /// When non-empty, sent as `X-API-Key` on Unicity JSON-RPC (`submit_commitment`, inclusion proof queries).
+    /// Inclusion proofs try `get_inclusion_proof` then `get_inclusion_proof.v2` (aggregator-go v2 surface).
+    #[serde(default)]
+    pub unicity_api_key: String,
     pub heartbeat_secs: u64,
     pub enabled: bool,
 }

@@ -132,9 +132,18 @@ pub fn unicity_request_id(receipt: &ChunkReceipt) -> [u8; 32] {
 }
 
 #[cfg(feature = "unicity")]
-pub async fn submit_commitment(receipt: &ChunkReceipt, gateway_url: &str) -> Result<UnicityProof> {
+pub async fn submit_commitment(
+    receipt: &ChunkReceipt,
+    gateway_url: &str,
+    api_key: Option<&str>,
+) -> Result<UnicityProof> {
+    let gateway_url = gateway_url.trim();
+    anyhow::ensure!(
+        !gateway_url.is_empty(),
+        "registry.unicity_aggregator_url is empty; set it to your Unicity JSON-RPC gateway base URL"
+    );
+
     let request_id = RequestId(hex::encode(unicity_request_id(receipt)));
-    let state_id = derive_state_id(receipt, &request_id);
     let payload_hex = hex::encode(
         canonical_payload(receipt).context("failed to serialize canonical receipt payload")?,
     );
@@ -148,12 +157,62 @@ pub async fn submit_commitment(receipt: &ChunkReceipt, gateway_url: &str) -> Res
         "id": 1
     });
 
-    post_to_unicity_gateway(gateway_url, &body, "submit_commitment").await?;
+    let submit_raw =
+        post_to_unicity_gateway(gateway_url, &body, "submit_commitment", api_key).await?;
+    let submit_value: serde_json::Value =
+        serde_json::from_str(&submit_raw).context("invalid JSON from submit_commitment")?;
 
-    // Proof materialization may lag slightly behind acceptance; retry briefly.
+    let state_id = match submit_value.get("error") {
+        None => derive_state_id(receipt, &request_id),
+        Some(err) => {
+            let code = err.get("code").and_then(serde_json::Value::as_i64);
+            if code != Some(-32601) {
+                anyhow::bail!("Unicity submit_commitment RPC error code={code:?}: {err}");
+            }
+
+            let ed = crate::identity::ed25519_secret_bytes().context("identity for anchor")?;
+            let built = crate::unicity_cert::build_certification_request(receipt, &ed)
+                .context("encode certification_request")?;
+            let cert_body = serde_json::json!({
+                "jsonrpc": "2.0",
+                "method": "certification_request",
+                "params": built.request_hex,
+                "id": 3_i64,
+            });
+
+            let cert_raw = post_to_unicity_gateway(
+                gateway_url,
+                &cert_body,
+                "certification_request",
+                api_key,
+            )
+            .await?;
+            let cert_val: serde_json::Value =
+                serde_json::from_str(&cert_raw).context("invalid JSON from certification_request")?;
+
+            if let Some(cerr) = cert_val.get("error") {
+                anyhow::bail!("Unicity certification_request RPC error: {cerr}");
+            }
+
+            let status = cert_val
+                .get("result")
+                .and_then(|r| r.get("status"))
+                .and_then(serde_json::Value::as_str);
+            match status {
+                Some("SUCCESS") | Some("STATE_ID_EXISTS") => (),
+                other => anyhow::bail!(
+                    "Unicity certification_request unexpected result {:?}: {}",
+                    other,
+                    &cert_raw[..cert_raw.len().min(200)]
+                ),
+            }
+
+            StateId(hex::encode(built.state_id_raw))
+        }
+    };
     let mut last_err = None;
     for _ in 0..3 {
-        match get_inclusion_proof_hex(gateway_url, &request_id, &state_id).await {
+        match get_inclusion_proof_hex(gateway_url, &request_id, &state_id, api_key).await {
             Ok((proof_hex, query_shape)) => {
                 info!(
                     request_id = request_id.as_str(),
@@ -180,19 +239,20 @@ async fn get_inclusion_proof_hex(
     gateway_url: &str,
     request_id: &RequestId,
     state_id: &StateId,
+    api_key: Option<&str>,
 ) -> Result<(String, &'static str)> {
     // Official aggregator docs show `stateId` for get_inclusion_proof.
     let state_id_params = serde_json::json!({
         "stateId": state_id.as_str()
     });
-    match get_inclusion_proof_with_params(gateway_url, state_id_params).await {
+    match get_inclusion_proof_with_params(gateway_url, state_id_params, api_key).await {
         Ok(proof_hex) => return Ok((proof_hex, "stateId")),
         Err(InclusionProofQueryError::InvalidParams(_)) => {
             let request_id_params = serde_json::json!({
                 "requestId": request_id.as_str()
             });
             let proof_hex =
-                match get_inclusion_proof_with_params(gateway_url, request_id_params).await {
+                match get_inclusion_proof_with_params(gateway_url, request_id_params, api_key).await {
                     Ok(proof_hex) => proof_hex,
                     Err(InclusionProofQueryError::InvalidParams(err))
                     | Err(InclusionProofQueryError::Other(err)) => return Err(err),
@@ -207,39 +267,59 @@ async fn get_inclusion_proof_hex(
 async fn get_inclusion_proof_with_params(
     gateway_url: &str,
     params: serde_json::Value,
+    api_key: Option<&str>,
 ) -> std::result::Result<String, InclusionProofQueryError> {
-    let body = serde_json::json!({
-        "jsonrpc": "2.0",
-        "method": "get_inclusion_proof",
-        "params": params,
-        "id": 2
-    });
-    let body = post_to_unicity_gateway(gateway_url, &body, "get_inclusion_proof")
-        .await
-        .map_err(InclusionProofQueryError::Other)?;
-    let value: serde_json::Value = serde_json::from_str(&body).map_err(|err| {
-        InclusionProofQueryError::Other(anyhow::anyhow!(
-            "invalid JSON response from get_inclusion_proof: {err}"
-        ))
-    })?;
-    if let Some(error) = value.get("error") {
-        let code = error.get("code").and_then(serde_json::Value::as_i64);
-        let anyhow_err =
-            anyhow::anyhow!("Unicity get_inclusion_proof RPC error code={code:?}: {error}");
-        if code == Some(-32602) {
-            return Err(InclusionProofQueryError::InvalidParams(anyhow_err));
+    const METHODS: [&str; 2] = ["get_inclusion_proof", "get_inclusion_proof.v2"];
+
+    let mut last_method_nf: Option<anyhow::Error> = None;
+    for (i, rpc_method) in METHODS.iter().enumerate() {
+        let body = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": rpc_method,
+            "params": params,
+            "id": 2
+        });
+        let raw = match post_to_unicity_gateway(gateway_url, &body, rpc_method, api_key).await {
+            Ok(s) => s,
+            Err(err) => return Err(InclusionProofQueryError::Other(err)),
+        };
+        let value: serde_json::Value = serde_json::from_str(&raw).map_err(|err| {
+            InclusionProofQueryError::Other(anyhow::anyhow!(
+                "invalid JSON response from {rpc_method}: {err}"
+            ))
+        })?;
+        if let Some(error) = value.get("error") {
+            let code = error.get("code").and_then(serde_json::Value::as_i64);
+            if code == Some(-32601) && i + 1 < METHODS.len() {
+                last_method_nf = Some(anyhow::anyhow!(
+                    "Unicity {rpc_method} RPC error code={code:?}: {error}"
+                ));
+                continue;
+            }
+            let anyhow_err =
+                anyhow::anyhow!("Unicity {rpc_method} RPC error code={code:?}: {error}");
+            if code == Some(-32602) {
+                return Err(InclusionProofQueryError::InvalidParams(anyhow_err));
+            }
+            return Err(InclusionProofQueryError::Other(anyhow_err));
         }
-        return Err(InclusionProofQueryError::Other(anyhow_err));
+
+        let result = value.get("result").cloned().ok_or_else(|| {
+            InclusionProofQueryError::Other(anyhow::anyhow!(
+                "Unicity {rpc_method} missing result field"
+            ))
+        })?;
+        let result_bytes = serde_json::to_vec(&result).map_err(|err| {
+            InclusionProofQueryError::Other(anyhow::anyhow!("failed to encode inclusion proof: {err}"))
+        })?;
+        return Ok(hex::encode(result_bytes));
     }
-    let result = value.get("result").cloned().ok_or_else(|| {
-        InclusionProofQueryError::Other(anyhow::anyhow!(
-            "Unicity get_inclusion_proof missing result field"
-        ))
-    })?;
-    let result_bytes = serde_json::to_vec(&result).map_err(|err| {
-        InclusionProofQueryError::Other(anyhow::anyhow!("failed to encode inclusion proof: {err}"))
-    })?;
-    Ok(hex::encode(result_bytes))
+
+    Err(InclusionProofQueryError::Other(
+        last_method_nf.unwrap_or_else(|| {
+            anyhow::anyhow!("Unicity inclusion proof query failed without a response")
+        }),
+    ))
 }
 
 #[cfg(feature = "unicity")]
@@ -253,11 +333,22 @@ async fn post_to_unicity_gateway(
     url: &str,
     payload: &serde_json::Value,
     method: &str,
+    api_key: Option<&str>,
 ) -> Result<String> {
-    let resp = reqwest::Client::new()
+    let client = reqwest::Client::new();
+    let mut req = client
         .post(url)
         .header("content-type", "application/json")
-        .json(payload)
+        .json(payload);
+
+    if let Some(key) = api_key {
+        let key = key.trim();
+        if !key.is_empty() {
+            req = req.header("X-API-Key", key);
+        }
+    }
+
+    let resp = req
         .send()
         .await
         .with_context(|| format!("Unicity {method} request to {url} failed"))?;

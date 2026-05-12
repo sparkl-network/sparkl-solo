@@ -18,7 +18,7 @@ hex = "0.4"
 libp2p = { version = "0.55", features = ["tokio", "identify", "kad", "mdns", "ping", "quic", "tcp", "noise", "yamux", "macros"] }
 once_cell = "1"
 rand = "0.8"
-reqwest = { version = "0.12", features = ["json", "stream"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
@@ -31,6 +31,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = "2"
 uuid = { version = "1", features = ["serde", "v4"] }
 crypto_box = "0.9"
+secp256k1 = { version = "0.31.1", default-features = false, features = ["recovery", "global-context"] }
 
 [features]
 # Default to laptop/CI-safe behavior so `cargo build` works without TPM tooling.

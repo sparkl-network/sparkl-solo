@@ -142,10 +142,17 @@ pub async fn chat_completions(
                                     let sessions_for_anchor = sessions.clone();
                                     let unicity_gateway_url =
                                         state.config.registry.unicity_aggregator_url.clone();
+                                    let unicity_api_key = state.config.registry.unicity_api_key.clone();
                                     tokio::spawn(async move {
+                                        let api_key_opt = if unicity_api_key.trim().is_empty() {
+                                            None
+                                        } else {
+                                            Some(unicity_api_key.as_str())
+                                        };
                                         match crate::receipts::submit_commitment(
                                             &receipt_for_anchor,
                                             &unicity_gateway_url,
+                                            api_key_opt,
                                         )
                                         .await
                                         {

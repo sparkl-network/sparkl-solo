@@ -109,6 +109,7 @@ struct CliArgs {
     registry_url: Option<String>,
     registry_heartbeat_secs: Option<u64>,
     registry_enabled: Option<bool>,
+    unicity_api_key: Option<String>,
     settlement_epoch_secs: Option<u64>,
     evm_rpc_url: Option<String>,
     escrow_contract: Option<String>,
@@ -147,6 +148,7 @@ where
         registry_url: None,
         registry_heartbeat_secs: None,
         registry_enabled: None,
+        unicity_api_key: None,
         settlement_epoch_secs: None,
         evm_rpc_url: None,
         escrow_contract: None,
@@ -237,6 +239,9 @@ where
             }
             "--registry-enabled" => {
                 out.registry_enabled = Some(parse_bool_flag(&mut args, "--registry-enabled")?)
+            }
+            "--unicity-api-key" => {
+                out.unicity_api_key = Some(required_value(&mut args, "--unicity-api-key")?)
             }
             "--settlement-epoch-secs" => {
                 out.settlement_epoch_secs =
@@ -387,6 +392,9 @@ fn apply_cli_overrides(cfg: &mut config::Config, cli: &CliArgs) -> Result<()> {
     }
     if let Some(v) = cli.registry_enabled {
         cfg.registry.enabled = v;
+    }
+    if let Some(v) = &cli.unicity_api_key {
+        cfg.registry.unicity_api_key = v.clone();
     }
     if let Some(v) = cli.settlement_epoch_secs {
         cfg.settlement.epoch_secs = v;
