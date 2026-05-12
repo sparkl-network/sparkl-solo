@@ -15,6 +15,11 @@ contract MockOracle is IPriceOracle {
         timestamp = block.timestamp;
     }
 
+    /// @notice Use in tests with `vm.warp` to simulate stale oracle without changing the price fix.
+    function setTimestamp(uint256 _timestamp) external {
+        timestamp = _timestamp;
+    }
+
     /// @inheritdoc IPriceOracle
     function getUsdcPerDot() external view returns (uint256) {
         return usdcPerDot;
@@ -24,6 +29,11 @@ contract MockOracle is IPriceOracle {
     function getDotForUsdc(uint256 usdcAmount) external view returns (uint256 dotAmount) {
         if (usdcPerDot == 0) return 0;
         return (usdcAmount * 1e18) / usdcPerDot;
+    }
+
+    /// @inheritdoc IPriceOracle
+    function priceUpdatedAt() external view returns (uint256) {
+        return timestamp;
     }
 
     /// @notice Returns USDC-per-DOT and last `set` time.

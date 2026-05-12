@@ -56,6 +56,17 @@ contract ProviderRegistryTest is Test {
         assertFalse(reg.supportsTier(provider, SecurityTier.BEST_EFFORT));
     }
 
+    function test_supportsTier_teeOnlyProvider_rejectsBestEffort() public {
+        address teeOnly = address(0xC0DE);
+        vm.prank(teeOnly);
+        reg.registerProvider(payout, false, true, "");
+        vm.prank(attestation);
+        reg.setTEEProof(teeOnly, bytes32(uint256(0x99)));
+
+        assertFalse(reg.supportsTier(teeOnly, SecurityTier.BEST_EFFORT));
+        assertTrue(reg.supportsTier(teeOnly, SecurityTier.TEE_VERIFIED));
+    }
+
     function test_supportsTier_teeOnlyAfterProof() public {
         vm.prank(provider);
         reg.registerProvider(payout, true, true, "");

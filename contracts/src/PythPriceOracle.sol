@@ -16,4 +16,9 @@ contract PythPriceOracle is IPriceOracle {
     function getDotForUsdc(uint256) external pure returns (uint256) {
         revert NotImplemented();
     }
+
+    /// @inheritdoc IPriceOracle
+    function priceUpdatedAt() external pure returns (uint256) {
+        revert NotImplemented();
+    }
 }

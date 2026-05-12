@@ -46,4 +46,12 @@ contract DIAPriceOracle is IPriceOracle {
         uint256 perDot = getUsdcPerDot();
         dotAmount = (usdcAmount * 1e18) / perDot;
     }
+
+    /// @inheritdoc IPriceOracle
+    /// @dev Conservative: freshness is the older of the two feed timestamps.
+    function priceUpdatedAt() external view returns (uint256 ts) {
+        (, uint128 dotTs) = dotUsdFeed.getValue(dotKey);
+        (, uint128 usdcTs) = usdcUsdFeed.getValue(usdcKey);
+        ts = uint256(dotTs <= usdcTs ? dotTs : usdcTs);
+    }
 }
