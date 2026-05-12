@@ -1,0 +1,79 @@
+# Builds and tests Solidity under contracts/ via Foundry — native toolchain and Docker (README parity).
+#
+# Branch protection: require the check named "contracts" so merges are blocked unless both matrix legs pass.
+
+name: contracts
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  forge:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - environment: native
+            use_docker: false
+          - environment: docker
+            use_docker: true
+
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: contracts
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: forge build + test (native)
+        if: ${{ !matrix.use_docker }}
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+
+      - run: forge --version && forge build
+        if: ${{ !matrix.use_docker }}
+
+      - run: forge test -vv
+        if: ${{ !matrix.use_docker }}
+
+      - name: forge build + test (Docker)
+        if: ${{ matrix.use_docker }}
+        run: |
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE/contracts":/work \
+            -w /work \
+            --entrypoint forge \
+            ghcr.io/foundry-rs/foundry:latest \
+            build
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE/contracts":/work \
+            -w /work \
+            --entrypoint forge \
+            ghcr.io/foundry-rs/foundry:latest \
+            test -vv
+
+  # Single required status: succeeds only if every forge matrix job succeeded.
+  contracts:
+    name: contracts
+    runs-on: ubuntu-latest
+    needs: [forge]
+    if: always()
+    steps:
+      - name: Require forge jobs success
+        run: |
+          if [ "${{ needs.forge.result }}" != "success" ]; then
+            echo "::error::contracts forge matrix failed (result=${{ needs.forge.result }})"
+            exit 1
+          fi
+          echo "All forge matrix jobs passed."
