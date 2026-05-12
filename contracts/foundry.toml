@@ -7,3 +7,6 @@ evm_version = "paris"
 optimizer = true
 optimizer_runs = 200
 via_ir = false
+
+# `vm.writeJson` in DeployPaseo writes under `deployments/`.
+fs_permissions = [{ access = "read-write", path = "./deployments/" }]

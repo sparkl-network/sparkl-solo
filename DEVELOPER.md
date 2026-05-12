@@ -22,6 +22,8 @@ Solidity sources for these contracts live under [`contracts/`](./contracts/) (Fo
 
 **Local EVM:** from `contracts/`, install [Foundry](https://book.getfoundry.sh/getting-started/installation) (or run `forge`/`anvil` via the official Docker image). Pull `forge-std` if needed: `forge install --no-git foundry-rs/forge-std`. Run `forge test` for unit tests (`ProviderRegistry`, `SettlementEscrow`, mocks). Start `anvil` (or any JSON-RPC dev node), then broadcast `script/DeployLocal.s.sol` with `forge script ... --rpc-url http://127.0.0.1:8545 --broadcast`.
 
+**Paseo (Hub testnet):** broadcast `contracts/script/DeployPaseo.s.sol` against the Paseo Hub EVM RPC; exported addresses land in [`contracts/deployments/paseo.json`](./contracts/deployments/paseo.json). See **Deploy to Paseo** below for a repeatable checklist.
+
 **Off-chain**
 
 - **Attestation service** — verifies TEE quotes and calls the registry to record **TEE verified** + evidence hash.
@@ -50,6 +52,24 @@ Solidity sources for these contracts live under [`contracts/`](./contracts/) (Fo
 - Run tests:
   - `cargo test --features mock-tpm`
   - `cargo test --features tpm`
+
+## Deploy to Paseo (Hub testnet — manual checklist)
+
+Use Foundry scripts under [`contracts/`](./contracts/); deployed addresses default to **`contracts/deployments/paseo.json`**. This path uses **mock oracle + mock USDC** embedded in Solidity (MVP for testnet rehearsal); switching to Hub precompiles feeds is follow-up.
+
+1. **Tooling:** Install [Foundry](https://book.getfoundry.sh/getting-started/installation). From `contracts/`: run `forge build` and `forge test` locally.
+2. **RPC:** Decide the **Paseo Hub EVM** JSON-RPC endpoint (often kept in `PASEO_RPC`). Confirm chain id matches expectations on that network.
+3. **Deploy account:** Obtain a funded Hub-EVM key for broadcasts (native DOT/test tokens on Paseo for gas). Prefer a **dedicated deployment key**, not a hot production key.
+4. **Secrets:** `export PRIVATE_KEY=0x...` in your shell session only (`cast wallet import`, hardware wallet QR, etc.). Never commit `.env` with keys into git.
+5. **Registry attestation signer (optional):** If the address allowed to call `ProviderRegistry.setTEEProof` should differ from the deployer (owner remains deployer unless you migrate ownership later), export `ATTESTATION_SERVICE=0x...`. Otherwise omit it; the deployer is used at deploy time ([`contracts/script/DeployPaseo.s.sol`](./contracts/script/DeployPaseo.s.sol)).
+6. **Simulate:** `forge script script/DeployPaseo.s.sol:DeployPaseo --rpc-url "$PASEO_RPC"` (omit `--broadcast`) and confirm gas / revert output.
+7. **Broadcast:** `forge script script/DeployPaseo.s.sol:DeployPaseo --rpc-url "$PASEO_RPC" --broadcast`
+8. **Artifacts:** Confirm `contracts/deployments/paseo.json` exists and captures `providerRegistry`, `settlementEscrow`, `mockOracle`, `mockUsdc`, timestamps, `chainId`. Optionally commit addresses (no secrets) for team parity.
+9. **Node wiring:** Set `settlement.evm_rpc_url` to `"$PASEO_RPC"` (or canonical endpoint) and `settlement.escrow_contract` to **`settlementEscrow`** from the JSON file. Toggle `settlement.enabled` when integration is enabled.
+10. **Verification:** When Hub EVM block explorers support Solidity verification compatible with Forge, retry with Forge’s `--verify` flags and your chain’s API key docs.
+11. **Output path:** To write elsewhere set `DEPLOYMENTS_OUT=my/path.json` (relative to `contracts/`).
+
+Detailed one-liners and env table: [`contracts/README.md`](./contracts/README.md) (section **Paseo testnet**).
 
 ## macOS TPM2 tooling note
 

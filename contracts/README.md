@@ -26,8 +26,9 @@ If `lib/forge-std` is already present, skip this step.
 | `src/interfaces/` | `IPriceOracle`, `IProviderRegistry`, `IERC20`, `IDIAOracle` |
 | `src/mocks/` | `MockOracle`, `MockERC20` (tests / local deploys) |
 | `test/` | Forge tests (`*.t.sol`) |
-| `script/` | `DeployLocal.s.sol` for Anvil / dev chains |
-| `foundry.toml` | Solidity `0.8.28`, `src`, `lib`, optimizer |
+| `script/` | `DeployLocal.s.sol` (Anvil), `DeploySparklBase.sol` (shared deployment), `DeployPaseo.s.sol` (Paseo Hub EVM testnet) |
+| `deployments/` | Written by `DeployPaseo` (default `deployments/paseo.json`) |
+| `foundry.toml` | Solidity `0.8.28`, `src`, `lib`, optimizer, filesystem allowlist for deployments JSON |
 
 ## Build
 
@@ -78,6 +79,32 @@ Tests cover `ProviderRegistry`, `SettlementEscrow`, USDC→internal DOT conversi
 3. Console output lists deployed addresses: `MockOracle`, `MockERC20`, `ProviderRegistry`, `SettlementEscrow`.
 
 Docker example (Anvil + script in one shot is possible but fragile; two terminals or `anvil` in background is clearer.)
+
+## Paseo testnet (Hub EVM)
+
+Deploy mocks plus `ProviderRegistry` and `SettlementEscrow` against a Paseo JSON-RPC endpoint. **`PRIVATE_KEY` is required** (hex, no committed keys). Overrides:
+
+| Env | Meaning |
+|-----|---------|
+| `PRIVATE_KEY` | Deployer/signing key (required) |
+| `ATTESTATION_SERVICE` | Optional; defaults to deployer (`ProviderRegistry` `setTEEProof` caller) |
+| `DEPLOYMENTS_OUT` | Optional JSON path relative to `contracts/`; default `deployments/paseo.json` |
+
+```bash
+cd contracts
+
+export PRIVATE_KEY=0x...      # funded account on Paseo Hub EVM
+export PASEO_RPC=https://...  # Official Paseo / Polkadot Hub EVM revive JSON-RPC
+
+forge script script/DeployPaseo.s.sol:DeployPaseo \
+  --rpc-url "$PASEO_RPC" \
+  --broadcast
+
+# Verification: append when Hub EVM block explorer + Forge verifier are wired, e.g.:
+#   --verify --etherscan-api-key YOUR_KEY ...
+```
+
+After broadcast, inspect `contracts/deployments/paseo.json` for addresses. Manual checklist for operators: see [DEVELOPER.md](../DEVELOPER.md) (**Deploy to Paseo**).
 
 ## Configuration notes
 
