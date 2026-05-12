@@ -2,6 +2,8 @@
 
 **Version 0.1 — May 2026**
 
+> **Engineering direction (Sparkl):** Payments, escrow, and provider registry are moving to **Polkadot Hub EVM** (`pallet_revive`) with **native DOT** first and **USDC** via the Hub **ERC-20 precompile** later. **Tier A** providers are **TEE-verified** (on-chain flag + evidence from an attestation service); **Tier B** is **best-effort**. Aggregators route by tier and price. Sections below that describe **Unicity**, **Base**, or single-spend tokens remain useful background but are **not** the primary target architecture; see repository `DEVELOPER.md` and `contracts/`.
+
 ***
 
 ## Abstract

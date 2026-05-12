@@ -30,13 +30,14 @@ nras_enabled = false
 cert_ttl_days = 7
 
 [registry]
-unicity_aggregator_url = "https://aggregator.unicity.network"
+unicity_aggregator_url = "http://192.168.10.164:3000/"
+unicity_api_key = ""
 heartbeat_secs = 30
 enabled = false
 
 [settlement]
 epoch_secs = 600
-evm_rpc_url = "https://mainnet.base.org"
+evm_rpc_url = "https://YOUR_POLKADOT_HUB_EVM_RPC"
 escrow_contract = "0x0000000000000000000000000000000000000000"
 enabled = false
 

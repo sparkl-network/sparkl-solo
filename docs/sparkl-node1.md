@@ -1,5 +1,7 @@
 No research needed — this is a direct engineering specification. Here's a complete, cursor-ready implementation brief.
 
+> **Architecture note:** Product direction for payments/registry is **Polkadot Hub EVM** (`pallet_revive`): **DOT** escrow first, **USDC** via ERC-20 precompile later; on-chain **`ProviderRegistry`** (tiers, TEE flags, pricing, payouts), **`SettlementEscrow`**, **`IPriceOracle`** (DIA/Pyth); off-chain attestation service + aggregators. Much of the prose below still references **Unicity** and **Base** — treat as historical unless marked current in `DEVELOPER.md` / `contracts/`.
+
 Sparkl Node1 — Prototype Implementation Spec
 Project Bootstrap
 
@@ -80,7 +82,7 @@ dashmap          = "6"
 bytes            = "1"
 futures          = "0.3"
 
-# HTTP (Unicity + EVM settlement calls)
+# HTTP (registry / settlement RPC; target Hub EVM + optional legacy Unicity)
 url              = "2"
 
 [features]
@@ -114,7 +116,7 @@ sparkl-node1/
 │   ├── session.rs            ← session lifecycle, ChunkReceipt, state machine
 │   ├── receipts.rs           ← chunk receipt generation, Ed25519 signing
 │   ├── store.rs              ← sled wrappers, session persistence
-│   ├── registry.rs           ← Unicity token registration, heartbeat loop
+│   ├── registry.rs           ← provider registry client (target: Hub contracts; optional Unicity)
 │   ├── settlement.rs         ← epoch batch assembly, EVM settlement call
 │   └── error.rs              ← SparklError enum
 ├── install.sh                ← one-line install script
@@ -169,14 +171,14 @@ pub struct AttestationConfig {
 }
 
 pub struct RegistryConfig {
-    pub unicity_aggregator_url: String,  // "https://aggregator.unicity.network"
+    pub unicity_aggregator_url: String,  // legacy: Unicity JSON-RPC when enabled
     pub heartbeat_secs:         u64,     // 30
     pub enabled:                bool,    // false in dev/local mode
 }
 
 pub struct SettlementConfig {
     pub epoch_secs:         u64,         // 600 (10 minutes)
-    pub evm_rpc_url:        String,      // Base L2 RPC
+    pub evm_rpc_url:        String,      // Polkadot Hub EVM JSON-RPC (pallet_revive)
     pub escrow_contract:    String,      // 0x...
     pub enabled:            bool,        // false in dev/local mode
 }
@@ -219,7 +221,7 @@ enabled                = false   # set true for network participation
 
 [settlement]
 epoch_secs      = 600
-evm_rpc_url     = "https://mainnet.base.org"
+evm_rpc_url     = "https://YOUR_POLKADOT_HUB_EVM_RPC"
 escrow_contract = "0x0000000000000000000000000000000000000000"
 enabled         = false   # set true for billing
 

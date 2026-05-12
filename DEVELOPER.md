@@ -2,6 +2,40 @@
 
 This guide covers local development for `sparkl-solo`, including running two local nodes with different config files so they can discover each other.
 
+## Target architecture (updated)
+
+**Goals**
+
+- Payments and escrow on **Polkadot Hub EVM** (`pallet_revive`): **native DOT** first; **USDC** later via the Hub **ERC-20 precompile**.
+- Two provider tiers:
+  - **Tier A — TEE-verified:** confidential, verifiable inference (hardware-backed attestation).
+  - **Tier B — Best-effort:** no hardware guarantees; cheaper.
+- The **consumer picks the tier**; pricing can differ by tier.
+
+**On-chain (Polkadot Hub)**
+
+- **SettlementEscrow** — DOT escrow; USDC path credits internal DOT balances via the price oracle.
+- **ProviderRegistry** — payout addresses, per-tier pricing, active flag, and on-chain **TEE verified** state (evidence hash).
+- **PriceOracle** — `IPriceOracle` for USDC↔DOT (MVP: DIA feeds; later: Pyth).
+
+Solidity sources for these contracts live under [`contracts/`](./contracts/) (Foundry layout).
+
+**Local EVM:** from `contracts/`, install [Foundry](https://book.getfoundry.sh/getting-started/installation) (or run `forge`/`anvil` via the official Docker image). Pull `forge-std` if needed: `forge install --no-git foundry-rs/forge-std`. Run `forge test` for unit tests (`ProviderRegistry`, `SettlementEscrow`, mocks). Start `anvil` (or any JSON-RPC dev node), then broadcast `script/DeployLocal.s.sol` with `forge script ... --rpc-url http://127.0.0.1:8545 --broadcast`.
+
+**Off-chain**
+
+- **Attestation service** — verifies TEE quotes and calls the registry to record **TEE verified** + evidence hash.
+- **Aggregators** — route traffic by user tier, declared pricing, and eligibility from the registry.
+
+**Provider nodes**
+
+- **Tier A:** SGX / TDX / SEV / TrustZone / Nitro (and similar).
+- **Tier B:** ordinary GPU/CPU serving without TEE guarantees.
+
+**Legacy / transitional**
+
+- The `sparkl-solo` binary may still expose Unicity-oriented config (`registry.unicity_*`) and the `--features unicity` path while integration moves to Hub EVM. Prefer Hub RPC + contract addresses for new work.
+
 ## Prerequisites
 
 - Rust toolchain (stable)
@@ -66,12 +100,14 @@ cert_ttl_days = 7
 
 [registry]
 unicity_aggregator_url = "https://aggregator.unicity.network"
+unicity_api_key = ""
 heartbeat_secs = 30
 enabled = false
 
 [settlement]
 epoch_secs = 600
-evm_rpc_url = "https://mainnet.base.org"
+# Polkadot Hub EVM (pallet_revive) — set your RPC and deployed SettlementEscrow
+evm_rpc_url = "https://YOUR_POLKADOT_HUB_EVM_RPC"
 escrow_contract = "0x0000000000000000000000000000000000000000"
 enabled = false
 
@@ -113,12 +149,14 @@ cert_ttl_days = 7
 
 [registry]
 unicity_aggregator_url = "https://aggregator.unicity.network"
+unicity_api_key = ""
 heartbeat_secs = 30
 enabled = false
 
 [settlement]
 epoch_secs = 600
-evm_rpc_url = "https://mainnet.base.org"
+# Polkadot Hub EVM (pallet_revive) — set your RPC and deployed SettlementEscrow
+evm_rpc_url = "https://YOUR_POLKADOT_HUB_EVM_RPC"
 escrow_contract = "0x0000000000000000000000000000000000000000"
 enabled = false
 
@@ -183,7 +221,8 @@ yarn tpm:suite
   - example: `SPARKLE__NETWORK__INFERENCE_PORT=19944`
   - example: `SPARKLE__NETWORK__EXPOSE_STATUS_DETAIL=true`
   - for array values, pass JSON: `SPARKLE__NETWORK__PUBLIC_ADDR='["/ip4/203.0.113.10/tcp/30333"]'`
-  - Unicity JSON-RPC gateway (`registry.unicity_aggregator_url`), e.g. testnet: `SPARKLE__REGISTRY__UNICITY_AGGREGATOR_URL=https://goggregator-test.unicity.network/` then `cargo run --features unicity` — works without any additional env-var wiring beyond the existing `SPARKLE__` loader
+  - **Polkadot Hub EVM:** point `settlement.evm_rpc_url` (and `escrow_contract`) at your Hub deployment; same `SPARKLE__SETTLEMENT__EVM_RPC_URL` / `SPARKLE__SETTLEMENT__ESCROW_CONTRACT` overrides apply
+  - **Unicity (legacy / optional):** `registry.unicity_aggregator_url`, e.g. `SPARKLE__REGISTRY__UNICITY_AGGREGATOR_URL=https://goggregator-test.unicity.network/` with `cargo run --features unicity`
 - `mock-tpm` is required for laptop/dev workflows.
 - Registry and settlement are disabled in these local configs.
 - If using `llama-swap` on `:8000`, set `backend.url = "http://127.0.0.1:8000"`.

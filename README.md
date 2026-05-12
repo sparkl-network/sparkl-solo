@@ -4,7 +4,20 @@ Rust prototype for the `sparkl-solo` binary.
 
 ## What is Sparkl
 
-Sparkl is a decentralized private AI inference network for routing model requests across independent provider nodes.  
+Sparkl is a decentralized private AI inference network for routing model requests across independent provider nodes.
+
+## Target architecture
+
+**Goals:** payments and escrow on **Polkadot Hub EVM** (`pallet_revive`) using **DOT** first and **USDC** later (Hub **ERC-20 precompile**). Two provider tiers: **Tier A** (TEE-verified, confidential / verifiable inference) and **Tier B** (best-effort, cheaper). Consumers choose the tier; pricing may differ by tier.
+
+**On-chain:** `SettlementEscrow`, `ProviderRegistry` (payouts, per-tier pricing, TEE flags / evidence hash), and `IPriceOracle` (USDC↔DOT; DIA for MVP, Pyth later) — see [`contracts/`](./contracts/).
+
+**Off-chain:** an attestation service that verifies TEE quotes and writes **TEE verified** on-chain; aggregators that route by tier and price.
+
+**Provider nodes:** Tier A on SGX/TDX/SEV/TrustZone/Nitro-class hardware; Tier B on any GPU/CPU platform.
+
+Legacy Unicity-oriented options remain in config for transitional use; new integration work should target Hub EVM.
+
 The `sparkl-solo` node implements:
 
 - OpenAI-compatible inference proxying (`/v1/chat/completions`, `/v1/models`)
@@ -44,7 +57,7 @@ You can override config with either CLI flags or environment variables.
 - **Arrays via env vars:** use JSON array strings
   - example: `SPARKLE__NETWORK__PUBLIC_ADDR='["/ip4/1.2.3.4/tcp/30333"]'`
 
-Unicity anchoring (`--features unicity`) uses `registry.unicity_aggregator_url` as the JSON-RPC base URL. Override it with the same env mechanism — no extra env handling code; `config` loads `Environment::with_prefix("SPARKLE").separator("__")` automatically.
+Unicity anchoring (`--features unicity`) is **legacy / optional**: it uses `registry.unicity_aggregator_url` as the JSON-RPC base URL. Override with `SPARKLE__REGISTRY__UNICITY_AGGREGATOR_URL` (and optional `SPARKLE__REGISTRY__UNICITY_API_KEY`). **Primary settlement direction:** Polkadot Hub EVM — set `settlement.evm_rpc_url` and `settlement.escrow_contract` to your Hub deployment.
 
 ```bash
 SPARKLE__REGISTRY__UNICITY_AGGREGATOR_URL=https://goggregator-test.unicity.network/ \
@@ -91,10 +104,11 @@ Progress is mapped to the multi-phase plan in `docs/Sparkle  Decentralised Priva
 - [x] Session accounting now uses real token pricing (`amount_micro_usd`)
 - [x] Settlement epoch batches now compute a receipts root (non-zero placeholder removed)
 - [x] Session completion logs include tokens, receipts, earnings, and duration
-- [x] Unicity integration entry points added (`unicity_request_id`, feature-gated async `submit_commitment`)
+- [x] Unicity integration entry points added (`unicity_request_id`, feature-gated async `submit_commitment`) — legacy path
 - [ ] Live NRAS verification and production attestation certificate flow
-- [ ] Unicity registry heartbeats/state transitions beyond local stub behavior
-- [ ] On-chain escrow/payment settlement integration beyond disabled local config
+- [ ] Hub EVM–backed registry / escrow integration (`ProviderRegistry`, `SettlementEscrow`, oracles)
+- [ ] Optional: Unicity registry heartbeats/state transitions beyond local stub behavior
+- [ ] On-chain escrow/payment settlement wired to configured `escrow_contract` on Hub EVM
 
 ### Phase 3 - P2P network hardening (in progress)
 
@@ -109,12 +123,13 @@ Progress is mapped to the multi-phase plan in `docs/Sparkle  Decentralised Priva
 
 - [x] `SETUP.md` production runbook (config + port forwarding)
 - [x] Expanded macOS TPM guidance in `DEVELOPER.md` and `docs/TPM-development.md`
-- [x] `tests-js` Unicity gateway smoke test (`yarn unicity:ping`)
+- [x] `tests-js` Unicity gateway smoke test (`yarn unicity:ping`, legacy JSON-RPC path)
 - [ ] GitHub Actions CI workflow activation (requires token/repo permission for workflow updates)
 
 ### TBC
-- Oracle design for pricing
-- Integration with Unicity for state transition and proof generation
+- Tier-aware routing and pricing alignment with on-chain registry
+- Attestation service ↔ `ProviderRegistry` TEE proof flow
+- Oracle-backed USDC↔DOT in production (DIA / Pyth)
 - Integration with ZKP layer for Double-spend protection
 - Dashboard and UI
 - Substrate solo chain

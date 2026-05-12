@@ -2,6 +2,8 @@
 
 **Version 0.1 — May 2026**
 
+> **Engineering direction (Sparkl):** Settlement and provider registration are targeting **Polkadot Hub EVM** (`pallet_revive`), **DOT** + (later) **USDC** via precompile, with **Tier A** (TEE-verified) vs **Tier B** (best-effort) economics. Earlier drafts assumed different rails; pricing and treasury design should be read in that light. See `DEVELOPER.md` and `contracts/`.
+
 ***
 
 ## Abstract

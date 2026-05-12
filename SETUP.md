@@ -2,6 +2,8 @@
 
 This guide explains how to run a `sparkl-solo` node in a production-like environment, including config options, network exposure, and port forwarding.
 
+**Settlement / registry target:** on-chain **Polkadot Hub EVM** (`pallet_revive`) — native **DOT** escrow first; **USDC** later via the Hub **ERC-20 precompile**. See [`contracts/`](./contracts/) (`SettlementEscrow`, `ProviderRegistry`, `IPriceOracle` implementations). Off-chain: attestation service (TEE verification → on-chain flags), aggregators (tier + price routing). Unicity-related settings in config remain **legacy / optional** where the code still supports them.
+
 `sparkl-solo` is still a prototype. Use this as an operational baseline, then harden further for your environment.
 
 ## 1) Prerequisites
@@ -67,12 +69,13 @@ cert_ttl_days = 7
 
 [registry]
 unicity_aggregator_url = "https://aggregator.unicity.network"
+unicity_api_key = ""
 heartbeat_secs = 30
 enabled = false
 
 [settlement]
 epoch_secs = 600
-evm_rpc_url = "https://mainnet.base.org"
+evm_rpc_url = "https://YOUR_POLKADOT_HUB_EVM_RPC"
 escrow_contract = "0x0000000000000000000000000000000000000000"
 enabled = false
 
@@ -110,8 +113,8 @@ micro_usd_per_m_output_tokens = 780
 - `backend.models_path`: backend model-list endpoint.
 - `backend.timeout_secs`: backend request timeout.
 - `attestation.*`: attestation endpoint and mode toggle.
-- `registry.*`: Unicity registration/heartbeat controls.
-- `settlement.*`: settlement/escrow controls.
+- `registry.*`: registration / heartbeat controls. **Transitional:** Unicity-oriented URLs when using `--features unicity`. **Target:** provider discovery and tier/pricing alignment against **Polkadot Hub** contracts (see repo `contracts/`).
+- `settlement.*`: escrow / epoch controls. `evm_rpc_url` should point at **Polkadot Hub EVM**; `escrow_contract` is the deployed **SettlementEscrow** (or successor) address.
 - `pricing.*`: local pricing values used by settlement/accounting logic.
 
 ## 5) Model exposure policy (important)
@@ -173,6 +176,7 @@ Available CLI overrides (grouped by config section):
   - `--cert-ttl-days`
 - `registry.*`
   - `--registry-url`
+  - `--unicity-api-key`
   - `--registry-heartbeat-secs`
   - `--registry-enabled` (`true|false`)
 - `settlement.*`
@@ -197,7 +201,10 @@ Environment variables are also supported through `config` crate loading:
   - `SPARKLE__BACKEND__URL=http://127.0.0.1:1234`
   - `SPARKLE__NETWORK__EXPOSE_STATUS_DETAIL=true`
   - `SPARKLE__NETWORK__ALLOW_NON_GLOBALS_IN_DHT=false`
-  - `SPARKLE__REGISTRY__UNICITY_AGGREGATOR_URL=https://goggregator-test.unicity.network/` (Unicity JSON-RPC base URL when using `--features unicity`; same `SPARKLE__` + `__` mapping as other keys — no separate env integration)
+  - `SPARKLE__REGISTRY__UNICITY_AGGREGATOR_URL=...` (optional legacy Unicity JSON-RPC when using `--features unicity`)
+  - `SPARKLE__REGISTRY__UNICITY_API_KEY=...` (optional; sent as `X-API-Key` when non-empty)
+  - `SPARKLE__SETTLEMENT__EVM_RPC_URL=https://YOUR_POLKADOT_HUB_EVM_RPC` (Hub EVM JSON-RPC)
+  - `SPARKLE__SETTLEMENT__ESCROW_CONTRACT=0x...` (deployed escrow contract)
 
 For list values, use JSON arrays:
 
