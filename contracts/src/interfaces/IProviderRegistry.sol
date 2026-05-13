@@ -8,8 +8,10 @@ import {SecurityTier, NodeInfo} from "../SecurityTypes.sol";
 interface IProviderRegistry {
     function owner() external view returns (address);
 
-    /// @param nodeId Registry key for the node (see `ProviderRegistry.registerNode`).
-    function getProvider(address nodeId) external view returns (NodeInfo memory);
+    function nodeOperator(bytes32 nodeId) external view returns (address);
 
-    function supportsTier(address nodeId, SecurityTier tier) external view returns (bool);
+    /// @param nodeId Registry key for the node (e.g. PeerId hash).
+    function getProvider(bytes32 nodeId) external view returns (NodeInfo memory);
+
+    function supportsTier(bytes32 nodeId, SecurityTier tier) external view returns (bool);
 }

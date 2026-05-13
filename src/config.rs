@@ -102,7 +102,8 @@ pub struct SettlementConfig {
     pub evm_rpc_url: String,
     pub escrow_contract: String,
     pub enabled: bool,
-    /// Hex-encoded secp256k1 key (`0x` optional). Must match the on-chain session provider for `recordUsage`.
+    /// Hex-encoded secp256k1 key (`0x` optional). Must match `ProviderRegistry.nodeOperator(nodeId)` for each
+    /// session’s `nodeId` when sending `recordUsage` / provider-side escrow calls.
     #[serde(default)]
     pub evm_provider_wallet_private_key: String,
     /// Hex-encoded secp256k1 key (`0x` optional). Must match `SettlementEscrow.settlementOperator` for operator settles.

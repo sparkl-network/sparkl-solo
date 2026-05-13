@@ -54,6 +54,7 @@ evm_rpc_url = "https://YOUR_POLKADOT_HUB_EVM_RPC"
 escrow_contract = "0x0000000000000000000000000000000000000000"
 enabled = false
 # Required when building with `--features evm-settlement` and settlement.enabled = true:
+# Node operator key — must match registry.nodeOperator(nodeId) for each settled session's nodeId.
 # evm_provider_wallet_private_key = "0x..."
 # evm_settlement_operator_wallet_private_key = "0x..."  # must match escrow.settlementOperator (set by registry owner)
 # Maps micro-USD bill to internal escrow units (placeholder scale).

@@ -20,6 +20,12 @@ alloy::sol!(
     concat!(env!("CARGO_MANIFEST_DIR"), "/abi/SettlementEscrow.json")
 );
 
+alloy::sol!(
+    #[sol(rpc)]
+    ProviderRegistry,
+    concat!(env!("CARGO_MANIFEST_DIR"), "/abi/ProviderRegistry.json")
+);
+
 pub(crate) async fn process_settlement_tick(
     settlement: &SettlementConfig,
     sessions: Arc<SessionManager>,
@@ -51,11 +57,11 @@ pub(crate) async fn process_settlement_tick(
     let provider_pk = settlement.evm_provider_wallet_private_key.trim();
     let operator_pk = settlement.evm_settlement_operator_wallet_private_key.trim();
     if provider_pk.is_empty() || operator_pk.is_empty() {
-        warn!("evm-settlement enabled but provider/operator wallet keys missing; skipping EVM settlement tick");
+        warn!("evm-settlement enabled but node-operator / settlement-operator wallet keys missing; skipping EVM settlement tick");
         return;
     }
 
-    let provider_signer = match signer_from_hex(provider_pk) {
+    let node_operator_signer = match signer_from_hex(provider_pk) {
         Ok(s) => s,
         Err(e) => {
             warn!(error = %e, "invalid settlement.evm_provider_wallet_private_key");
@@ -96,11 +102,11 @@ pub(crate) async fn process_settlement_tick(
         return;
     }
 
-    let provider_exec = ProviderBuilder::new()
-        .wallet(provider_signer.clone())
+    let node_operator_rpc = ProviderBuilder::new()
+        .wallet(node_operator_signer.clone())
         .fetch_chain_id()
         .connect_http(rpc_url.clone());
-    let escrow_provider = SettlementEscrow::new(escrow_addr, &provider_exec);
+    let escrow_node_operator = SettlementEscrow::new(escrow_addr, &node_operator_rpc);
 
     let operator_exec = ProviderBuilder::new()
         .wallet(operator_signer.clone())
@@ -158,11 +164,23 @@ pub(crate) async fn process_settlement_tick(
                         anyhow::bail!("unknown on-chain session {}", chain_sid_u64);
                     }
 
-                    if provider_signer.address() != chain_sess.provider {
+                    let registry_addr = escrow_read
+                        .registry()
+                        .call()
+                        .await
+                        .context("registry() eth_call failed")?;
+                    let registry_read = ProviderRegistry::new(registry_addr, &read_provider);
+                    let node_operator = registry_read
+                        .nodeOperator(chain_sess.nodeId)
+                        .call()
+                        .await
+                        .context("nodeOperator eth_call failed")?;
+                    if node_operator_signer.address() != node_operator {
                         anyhow::bail!(
-                            "provider signer {} does not match on-chain session provider {}",
-                            provider_signer.address(),
-                            chain_sess.provider
+                            "node operator signer {} is not on-chain nodeOperator {} for session nodeId {:?}",
+                            node_operator_signer.address(),
+                            node_operator,
+                            chain_sess.nodeId
                         );
                     }
 
@@ -190,7 +208,7 @@ pub(crate) async fn process_settlement_tick(
 
                     let delta_sync = local_total.saturating_sub(usage_pre);
                     if delta_sync > U256::ZERO {
-                        let pending_tx = escrow_provider
+                        let pending_tx = escrow_node_operator
                             .recordUsage(session_id, delta_sync)
                             .send()
                             .await
@@ -358,11 +376,23 @@ pub(crate) async fn process_settlement_tick(
                     anyhow::bail!("unknown on-chain session {}", chain_sid_u64);
                 }
 
-                if provider_signer.address() != chain_sess.provider {
+                let registry_addr = escrow_read
+                    .registry()
+                    .call()
+                    .await
+                    .context("registry() eth_call failed")?;
+                let registry_read = ProviderRegistry::new(registry_addr, &read_provider);
+                let node_operator = registry_read
+                    .nodeOperator(chain_sess.nodeId)
+                    .call()
+                    .await
+                    .context("nodeOperator eth_call failed")?;
+                if node_operator_signer.address() != node_operator {
                     anyhow::bail!(
-                        "provider signer {} does not match on-chain session provider {}",
-                        provider_signer.address(),
-                        chain_sess.provider
+                        "node operator signer {} is not on-chain nodeOperator {} for session nodeId {:?}",
+                        node_operator_signer.address(),
+                        node_operator,
+                        chain_sess.nodeId
                     );
                 }
 
@@ -374,7 +404,7 @@ pub(crate) async fn process_settlement_tick(
                 let usage_pre = chain_sess.usageRecorded;
                 let delta_sync = local_total.saturating_sub(usage_pre);
                 if delta_sync > U256::ZERO {
-                    let pending_tx = escrow_provider
+                    let pending_tx = escrow_node_operator
                         .recordUsage(session_id, delta_sync)
                         .send()
                         .await

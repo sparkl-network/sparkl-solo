@@ -23,6 +23,23 @@ const challenges = new Map();
 
 const CHALLENGE_TTL_MS = 10 * 60 * 1000;
 
+const registryAbi = [
+  'function attestationService() view returns (address)',
+  'function nodeOperator(bytes32 nodeId) view returns (address)',
+  'function setTEEProof(bytes32 nodeId, bytes32 teeReportHash)',
+];
+
+/**
+ * @param {unknown} raw
+ * @returns {string | null} normalized 0x + 64 hex (bytes32)
+ */
+function parseNodeIdBytes32(raw) {
+  if (typeof raw !== 'string') return null;
+  const s = raw.trim();
+  if (!ethers.isHexString(s, 32)) return null;
+  return ethers.zeroPadValue(s, 32);
+}
+
 async function bootstrap() {
   if (!RPC_URL) throw new Error('RPC_URL is required');
   if (!REGISTRY || !ethers.isAddress(REGISTRY)) throw new Error('PROVIDER_REGISTRY_ADDRESS must be set to a contract address');
@@ -31,8 +48,7 @@ async function bootstrap() {
   const provider = new ethers.JsonRpcProvider(RPC_URL);
   const wallet = new ethers.Wallet(ADMIN_PK, provider);
 
-  const abi = ['function attestationService() view returns (address)', 'function setTEEProof(address provider, bytes32 teeReportHash)'];
-  const registry = new ethers.Contract(REGISTRY, abi, wallet);
+  const registry = new ethers.Contract(REGISTRY, registryAbi, wallet);
 
   try {
     const onChainAttestation = await registry.attestationService();
@@ -85,24 +101,25 @@ app.get('/v1/challenge', (_req, res) => {
 app.post('/v1/attest', async (req, res) => {
   purgeExpiredChallenges();
   try {
-    const providerAddressRaw = req.body?.providerAddress;
+    const nodeIdRaw = req.body?.nodeId ?? req.body?.providerAddress;
     const reportRaw = req.body?.report;
     const challengeId = req.body?.challengeId;
     const signatureRaw = req.body?.signature;
 
-    if (!providerAddressRaw || !reportRaw || !challengeId || !signatureRaw) {
+    if (!nodeIdRaw || !reportRaw || !challengeId || !signatureRaw) {
       res.status(400).json({
         ok: false,
-        error: 'providerAddress, report (hex), challengeId, and signature required',
+        error: 'nodeId (bytes32 hex), report (hex), challengeId, and signature required',
       });
       return;
     }
 
-    let providerAddr;
-    try {
-      providerAddr = ethers.getAddress(providerAddressRaw);
-    } catch {
-      res.status(400).json({ ok: false, error: 'invalid providerAddress' });
+    const nodeId = parseNodeIdBytes32(nodeIdRaw);
+    if (!nodeId) {
+      res.status(400).json({
+        ok: false,
+        error: 'nodeId must be 0x-prefixed 32-byte hex (bytes32), matching registerNode',
+      });
       return;
     }
 
@@ -128,15 +145,32 @@ app.post('/v1/attest', async (req, res) => {
       return;
     }
 
-    if (ethers.getAddress(signerFromSig) !== providerAddr) {
-      res.status(401).json({ ok: false, error: 'signature does not match providerAddress' });
+    let operatorOnChain;
+    try {
+      operatorOnChain = await ctx.registry.nodeOperator(nodeId);
+    } catch (e) {
+      console.error('[stub] nodeOperator call', e);
+      res.status(502).json({ ok: false, error: 'nodeOperator registry read failed' });
+      return;
+    }
+
+    if (!operatorOnChain || operatorOnChain === ethers.ZeroAddress) {
+      res.status(400).json({ ok: false, error: 'node not registered (nodeOperator is zero)' });
+      return;
+    }
+
+    if (ethers.getAddress(signerFromSig) !== ethers.getAddress(operatorOnChain)) {
+      res.status(401).json({
+        ok: false,
+        error: 'signature must recover to registry nodeOperator(nodeId)',
+      });
       return;
     }
 
     challenges.delete(challengeId);
 
     const teeReportHash = ethers.keccak256(report);
-    const tx = await ctx.registry.setTEEProof(providerAddr, teeReportHash);
+    const tx = await ctx.registry.setTEEProof(nodeId, teeReportHash);
     const receipt = await tx.wait();
 
     res.json({

@@ -24,7 +24,8 @@ contract SettlementEscrow {
     address public settlementOperator;
 
     mapping(address => uint256) public dotBalances;
-    mapping(address => uint256) public providerBalances;
+    /// @notice Internal DOT credited to a node (`nodeId`) from session settles; withdrawn by the node operator.
+    mapping(bytes32 => uint256) public providerBalances;
 
     /// @notice Sum of `Session.lockedInternal` across non-settled sessions (and settled sessions hold `lockedInternal == 0`).
     uint256 public totalLockedInternal;
@@ -35,7 +36,8 @@ contract SettlementEscrow {
 
     struct Session {
         address user;
-        address provider;
+        /// @notice Registry node key (e.g. Substrate PeerId hash), not an EVM address.
+        bytes32 nodeId;
         SecurityTier tier;
         uint256 lockedInternal;
         uint256 usageRecorded;
@@ -56,7 +58,7 @@ contract SettlementEscrow {
     event SessionOpened(
         uint256 indexed sessionId,
         address indexed user,
-        address indexed provider,
+        bytes32 indexed nodeId,
         SecurityTier tier,
         uint256 lockedInternal
     );
@@ -159,11 +161,12 @@ contract SettlementEscrow {
         emit UsdcDepositedAsDot(msg.sender, usdcAmount, credited);
     }
 
-    /// @notice Withdraw internal provider balance accrued from settles, paid as native DOT.
-    function withdrawProviderDot(uint256 amountInternal) external {
+    /// @notice Withdraw internal balance accrued for `nodeId` (caller must be `registry.nodeOperator(nodeId)`), paid as native DOT.
+    function withdrawProviderDot(bytes32 nodeId, uint256 amountInternal) external {
         if (amountInternal == 0) revert BadAmount();
-        if (providerBalances[msg.sender] < amountInternal) revert InsufficientBalance();
-        providerBalances[msg.sender] -= amountInternal;
+        if (registry.nodeOperator(nodeId) != msg.sender) revert NotSessionProvider();
+        if (providerBalances[nodeId] < amountInternal) revert InsufficientBalance();
+        providerBalances[nodeId] -= amountInternal;
         internalCirculating -= amountInternal;
         uint256 native = _internalToNative(amountInternal);
         (bool ok,) = msg.sender.call{value: native}("");
@@ -171,17 +174,17 @@ contract SettlementEscrow {
         emit ProviderDotWithdrawn(msg.sender, amountInternal, native);
     }
 
-    /// @notice Opens a tier-aware session, locking `amountInternal` for `(msg.sender, provider)`.
+    /// @notice Opens a tier-aware session, locking `amountInternal` for `(msg.sender, nodeId)`.
     /// @dev Pass `msg.value == 0` to consume from `dotBalances`, otherwise `msg.value` must equal `_internalToNative(amountInternal)`
     ///      and the escrow credits native into the lock without touching `dotBalances`.
-    function openSession(address provider, SecurityTier tier, uint256 amountInternal) external payable {
+    function openSession(bytes32 nodeId, SecurityTier tier, uint256 amountInternal) external payable {
         if (amountInternal == 0) revert BadAmount();
-        if (!registry.supportsTier(provider, tier)) revert UnsupportedTier();
+        if (!registry.supportsTier(nodeId, tier)) revert UnsupportedTier();
 
         uint256 id = nextSessionId++;
         sessions[id] = Session({
             user: msg.sender,
-            provider: provider,
+            nodeId: nodeId,
             tier: tier,
             lockedInternal: amountInternal,
             usageRecorded: 0,
@@ -202,14 +205,14 @@ contract SettlementEscrow {
             internalCirculating += amountInternal;
         }
 
-        emit SessionOpened(id, msg.sender, provider, tier, amountInternal);
+        emit SessionOpened(id, msg.sender, nodeId, tier, amountInternal);
     }
 
     /// @notice Provider records cumulative usage toward off-chain metering (does not move funds).
     function recordUsage(uint256 sessionId, uint256 usageDeltaInternal) external {
         Session storage s = sessions[sessionId];
         if (s.user == address(0)) revert UnknownSession();
-        if (s.provider != msg.sender) revert NotSessionProvider();
+        if (registry.nodeOperator(s.nodeId) != msg.sender) revert NotSessionProvider();
         if (s.settled) revert AlreadySettled();
         if (usageDeltaInternal == 0) revert BadAmount();
         s.usageRecorded += usageDeltaInternal;
@@ -263,7 +266,7 @@ contract SettlementEscrow {
 
         s.lockedInternal -= out;
         totalLockedInternal -= out;
-        providerBalances[s.provider] += toProvider;
+        providerBalances[s.nodeId] += toProvider;
         dotBalances[s.user] += toUser;
 
         if (s.lockedInternal == 0) s.settled = true;

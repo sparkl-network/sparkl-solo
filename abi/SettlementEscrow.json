@@ -154,9 +154,9 @@
     "name": "openSession",
     "inputs": [
       {
-        "name": "provider",
-        "type": "address",
-        "internalType": "address"
+        "name": "nodeId",
+        "type": "bytes32",
+        "internalType": "bytes32"
       },
       {
         "name": "tier",
@@ -191,8 +191,8 @@
     "inputs": [
       {
         "name": "",
-        "type": "address",
-        "internalType": "address"
+        "type": "bytes32",
+        "internalType": "bytes32"
       }
     ],
     "outputs": [
@@ -252,9 +252,9 @@
         "internalType": "address"
       },
       {
-        "name": "provider",
-        "type": "address",
-        "internalType": "address"
+        "name": "nodeId",
+        "type": "bytes32",
+        "internalType": "bytes32"
       },
       {
         "name": "tier",
@@ -456,6 +456,11 @@
     "name": "withdrawProviderDot",
     "inputs": [
       {
+        "name": "nodeId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
         "name": "amountInternal",
         "type": "uint256",
         "internalType": "uint256"
@@ -587,10 +592,10 @@
         "internalType": "address"
       },
       {
-        "name": "provider",
-        "type": "address",
+        "name": "nodeId",
+        "type": "bytes32",
         "indexed": true,
-        "internalType": "address"
+        "internalType": "bytes32"
       },
       {
         "name": "tier",
