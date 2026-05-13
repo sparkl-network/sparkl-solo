@@ -16,6 +16,9 @@ Sparkl is a decentralized private AI inference network for routing model request
 
 **Provider nodes:** Tier A on SGX/TDX/SEV/TrustZone/Nitro-class hardware; Tier B on any GPU/CPU platform.
 
+**PAOW:** Proven Attestation of Work, a proof of work that is used to verify the work of a provider.
+- see [`docs/TRUST.md`](./docs/TRUST.md) for more details
+
 Legacy Unicity-oriented options remain in config for transitional use; new integration work should target Hub EVM.
 
 The `sparkl-solo` node implements:
