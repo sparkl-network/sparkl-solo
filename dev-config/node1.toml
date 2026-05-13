@@ -4,7 +4,7 @@ data_dir = "./dev-data/node1"
 log_level = "info"
 mode = "solo"
 receipt_cadence_tokens = 50
-include_models = ["qwen/qwen3.5-9b"]
+include_models = []
 exclude_models = []
 
 [network]

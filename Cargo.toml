@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1"
+alloy = { version = "2.0.4", default-features = false, features = ["provider-http", "signer-local", "contract", "reqwest", "reqwest-rustls-tls"], optional = true }
 async-stream = "0.3"
 axum = { version = "0.8", features = ["json"] }
 base64 = "0.22"
@@ -32,6 +33,7 @@ url = "2"
 uuid = { version = "1", features = ["serde", "v4"] }
 crypto_box = "0.9"
 secp256k1 = { version = "0.31.1", default-features = false, features = ["recovery", "global-context"] }
+alloy-primitives = { version = "1.5.7", default-features = false, features = ["std"] }
 
 [features]
 # Default to laptop/CI-safe behavior so `cargo build` works without TPM tooling.
@@ -44,6 +46,7 @@ mock-tpm = []
 tpm = []
 # Enables async receipt anchoring to Unicity testnet gateway.
 unicity = []
+evm-settlement = ["dep:alloy"]
 
 [dev-dependencies]
 tempfile = "3"

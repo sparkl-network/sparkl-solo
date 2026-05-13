@@ -36,6 +36,21 @@ If `lib/forge-std` is already present, skip this step.
 forge build
 ```
 
+### ABI sync (Rust node + portal)
+
+After changing contracts, copy the built artifacts so **off-chain consumers stay on the same ABI**:
+
+- **Rust (`sparkl-solo`):** from `contracts/` after `forge build`, update `../abi/` from Forge output, for example:
+  - `cp out/ProviderRegistry.sol/ProviderRegistry.json ../abi/ProviderRegistry.json`
+  - `cp out/SettlementEscrow.sol/SettlementEscrow.json ../abi/SettlementEscrow.json`
+  (Exact paths under `out/` match your contract file names.)
+
+- **`sparkl-portal`:** copy the same JSON files into `sparkl-portal/lib/abi/` (or your sibling checkout) so the Next app and `sparkl-solo` never drift.
+
+### Node rundown (operator flow)
+
+Nodes use on-chain **`NodeLifecycle`**: **Active** → **`chillNode`** (operator, may run with open escrow sessions) → **Chilled** → **`markDefunct`** (operator, only when escrow **`openSessionCountByNode(nodeId)`** is zero) → **Defunct**. The registry owner may call **`purgeDefunctNode`** later to clear storage so the same **`nodeId`** can be registered again. **`deregisterNode`** is removed — integrators should use chill / mark defunct instead.
+
 ## Tests
 
 Run the full suite:
@@ -63,7 +78,7 @@ Tests cover `ProviderRegistry`, `SettlementEscrow`, USDC→internal DOT conversi
 1. Start Anvil (default `http://127.0.0.1:8545`, chain id `31337`):
 
    ```bash
-   anvil
+   anvil --host 0.0.0.0
    ```
 
 2. In another terminal, from `contracts/`:
@@ -74,9 +89,96 @@ Tests cover `ProviderRegistry`, `SettlementEscrow`, USDC→internal DOT conversi
      --broadcast
    ```
 
+   ```bash
+   [⠊] Compiling...
+No files changed, compilation skipped
+Script ran successfully.
+
+== Logs ==
+  deployer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
+  MockOracle 0x5FbDB2315678afecb367f032d93F642f64180aa3
+  MockERC20 USDC 0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0
+  ProviderRegistry 0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9
+  SettlementEscrow 0xDc64a140Aa3E981100a9becA4E685f962f0cF6C9
+
+## Setting up 1 EVM.
+
+==========================
+
+Chain 31337
+
+Estimated gas price: 2.000000001 gwei
+
+Estimated total gas used for script: 4723038
+
+Estimated amount required: 0.009446076004723038 ETH
+
+==========================
+
+##### anvil-hardhat
+✅  [Success] Hash: 0x35298b0e8b9567280fccfd162bd850bd05d87b276f993929e528b783f1b16653
+Contract: ProviderRegistry
+Contract Address: 0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0
+Block: 3
+Paid: 0.000315221805230332 ETH (410839 gas * 0.767263588 gwei)
+
+
+##### anvil-hardhat
+✅  [Success] Hash: 0x7fe15c03a9b86566163aaebec51ed7b53ea3f951dfbe9b4be2594b3ed54053ec
+Contract: MockERC20
+Contract Address: 0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9
+Block: 3
+Paid: 0.00116007185451248 ETH (1511960 gas * 0.767263588 gwei)
+
+
+##### anvil-hardhat
+✅  [Success] Hash: 0x364f9fdc93c1290f108d5a3e318a4556269c0e3d5705bbc6ac763c25ca2ae606
+Contract: MockOracle
+Contract Address: 0x5FbDB2315678afecb367f032d93F642f64180aa3
+Block: 1
+Paid: 0.000158953000158953 ETH (158953 gas * 1.000000001 gwei)
+
+
+##### anvil-hardhat
+✅  [Success] Hash: 0xd44538702e42e34b09b30b71aa0e5363313e881017e7e62c17ee112a94ac8b9c
+Contract: SettlementEscrow
+Contract Address: 0xDc64a140Aa3E981100a9becA4E685f962f0cF6C9
+Block: 4
+Paid: 0.00101359963477302 ETH (1482630 gas * 0.683649754 gwei)
+
+
+##### anvil-hardhat
+✅  [Success] Hash: 0x9938fc4ab71245f0a3a087469ef036514a038d18855e1f3ca7d7970d91eb29de
+Contract: MockOracle
+Function: set(uint256)
+Block: 2
+Paid: 0.00005754648448948 ETH (65668 gas * 0.87632461 gwei)
+
+✅ Sequence #1 on anvil-hardhat | Total Paid: 0.002705392779164265 ETH (3630050 gas * avg 0.818900308 gwei)
+                                                                                           
+
+==========================
+
+ONCHAIN EXECUTION COMPLETE & SUCCESSFUL.
+
+Transactions saved to: /home/derek/sparkl-solo/contracts/broadcast/DeployLocal.s.sol/31337/run-latest.json
+
+Sensitive values saved to: /home/derek/sparkl-solo/contracts/cache/DeployLocal.s.sol/31337/run-latest.json
+   ```
+
+  ## sparkl-portal .env
+  ### ProviderRegistry Contract Address
+  ```env
+  NEXT_PUBLIC_PROVIDER_REGISTRY_ADDRESS_<ENV>=0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0
+  ```
+  ### SettlementEscrow Contract Address
+  ```env
+  NEXT_PUBLIC_SETTLEMENT_ESCROW_ADDRESS_<ENV>=0xDc64a140Aa3E981100a9becA4E685f962f0cF6C9
+  ```
+
    By default the script uses Anvil’s first test private key; override with `PRIVATE_KEY` in the environment if needed.
 
-3. Console output lists deployed addresses: `MockOracle`, `MockERC20`, `ProviderRegistry`, `SettlementEscrow`.
+3. Console output lists deployed addresses: `MockOracle`, `MockERC20`, `ProviderRegistry`, `SettlementEscrow` (escrow uses **`nativeDotDecimals = 18`** so `depositDot` matches Anvil wei / ETH display).
 
 Docker example (Anvil + script in one shot is possible but fragile; two terminals or `anvil` in background is clearer.)
 
@@ -109,7 +211,7 @@ After broadcast, inspect `contracts/deployments/paseo.json` for addresses. Manua
 ## Configuration notes
 
 - **Oracle:** Primary spot quote is **USDC (6‑dec) smallest units per 1e18 internal DOT** (`IPriceOracle.getUsdcPerDot`). `SettlementEscrow.depositUsdcAsDot` credits internal DOT as `usdcAmount * 1e18 / usdcPerDot`. MVP mocks and deploy scripts baseline **`getUsdcPerDot() = 1_340_000`** (≈ **1.34 USD** per DOT at par USDC ≈ USD).
-- **Native DOT** in escrow uses **10** Planck-style decimals on-chain vs **18** decimals for internal accounting; see `SettlementEscrow` helpers.
+- **Native DOT** in escrow: constructor **`nativeDotDecimals`** — **`10`** on Polkadot Asset Hub (Planck), **`18`** for **`DeployLocal`** on Anvil (wei). Internal balances always use **18** decimals per whole DOT; see `SettlementEscrow` helpers.
 
 ## Security review
 

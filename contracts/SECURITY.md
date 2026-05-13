@@ -25,9 +25,9 @@ docker run --rm -v "$PWD":/work -w /work mythril/myth myth analyze src/Settlemen
 
 ## 1. Reentrancy — `settle*` / `withdraw`
 
-### `settlePartial` / `settleFull` → `_releaseSessionFunds`
+### `settlePartial` / `settleFull` / `settleByOperatorPartial` / `settleByOperatorFull` → `_settle`
 
-- **No external calls.** State updates (`lockedInternal`, `totalLockedInternal`, `providerBalances`, `dotBalances`, `settled`) and `emit` only.
+- **No external calls.** State updates (`lockedInternal`, `totalLockedInternal`, `paidToProviderInternal`, `providerBalances`, `dotBalances`, `settled`) and `emit` only.
 - **Assessment:** Not vulnerable to classic reentrancy via callee hooks.
 
 ### `withdrawDot` / `withdrawProviderDot`
@@ -51,15 +51,15 @@ docker run --rm -v "$PWD":/work -w /work mythril/myth myth analyze src/Settlemen
 
 | Contract / surface | Intended actor | Enforcement |
 |--------------------|----------------|-------------|
-| `ProviderRegistry.transferOwnership`, `setAttestationService`, `setProviderFee` | **Owner** | `onlyOwner` |
+| `ProviderRegistry.transferOwnership`, `setAttestationService`, `setNodeFee` | **Owner** | `onlyOwner` |
 | `ProviderRegistry.setTEEProof` | **`attestationService`** | `onlyAttestationService` |
-| `ProviderRegistry.registerProvider`, `setProviderPayout`, `setProviderActive`, `setPricing` | **Calling provider** (`msg.sender` as provider) | Implicit (no admin override) |
-| `SettlementEscrow` | **Anyone** for deposit / withdraw own balances; **session user** for settle; **session provider** for `recordUsage` | `msg.sender` checks; **no** single admin role on escrow |
+| `ProviderRegistry.registerNode`, `setNodePayout`, `setNodeActive`, `setNodeMetadata`, `setNodePricing` | **Node operator** (`nodeOperator[nodeId] == msg.sender`) | `onlyNodeOperator` |
+| `SettlementEscrow` | **Anyone** for deposit / withdraw own balances; **session user** for user escape-hatch settles; **`settlementOperator`** for operator settles; **session provider** for `recordUsage`; **`registry.owner()`** sets operator via `setSettlementOperator` | `msg.sender` checks; provider payouts from lock bounded by cumulative `usageRecorded` vs `paidToProviderInternal` |
 | Price oracles | **Read-only** from escrow | Immutable `priceOracle` reference |
 
 **Notes**
 
-- Escrow is **not** “onlyOwner”; design is permissionless custody with per-function `msg.sender` rules. Registry **owner** is separate from **attestationService** (can be updated by owner).
+- Escrow custody is mostly permissionless; **`settlementOperator`** is the privileged settlement role (configured by **registry owner**, same contract referenced by the escrow immutables). Registry **owner** is separate from **attestationService** (can be updated by owner).
 - **TEE stub** off-chain must use a key whose address equals `attestationService` on the deployed registry.
 
 ---

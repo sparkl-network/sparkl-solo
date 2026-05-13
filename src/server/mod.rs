@@ -13,6 +13,7 @@ use crate::session::SessionManager;
 
 pub mod attestation;
 pub mod health;
+pub mod identity;
 pub mod inference;
 pub mod models;
 pub mod receipts;
@@ -32,6 +33,7 @@ pub fn router(state: AppState) -> Router {
         .route("/health", get(health::health))
         .route("/status", get(health::status))
         .route("/status/detail", get(health::status_detail))
+        .route("/identity", get(identity::identity))
         .route("/attestation/challenge", post(attestation::challenge))
         .route("/receipts/verify", post(receipts::verify))
         .route("/receipts/proof/{session_id}/{seq}", get(receipts::proof))

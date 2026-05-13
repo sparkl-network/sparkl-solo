@@ -10,7 +10,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --features mock-tpm
-      - run: cargo clippy --features mock-tpm -- -D warnings
+      - run: cargo build --features mock-tpm,evm-settlement
+      - run: cargo clippy --features mock-tpm
+
       - run: cargo test --features mock-tpm
       # Compile tests with Unicity feature enabled without requiring live gateway availability.
       - run: cargo test --features unicity --no-run

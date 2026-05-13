@@ -8,8 +8,10 @@ import {SettlementEscrow} from "../src/SettlementEscrow.sol";
 import {MockOracle} from "../src/mocks/MockOracle.sol";
 import {MockERC20} from "../src/mocks/MockERC20.sol";
 
-/// @notice Deploy MockOracle + mock USDC + `ProviderRegistry` + `SettlementEscrow` used by deploy scripts.
-/// @dev MVP testnet deployments use mocks; Hub USDC/oracle integrations replace these for production-shaped deploys later.
+    /// @notice Deploy MockOracle + mock USDC + `ProviderRegistry` + `SettlementEscrow` used by deploy scripts.
+    /// @dev MVP testnet deployments use mocks; Hub USDC/oracle integrations replace these for production-shaped deploys later.
+    ///      `deploySparklCore` calls `registry.setSettlementEscrow(escrow)` in the broadcaster context — **`registryOwner` must equal
+    ///      `vm.addr(deployerPk)`** so that call succeeds without a separate owner transaction.
 abstract contract DeploySparklBase is Script {
     uint256 internal constant DEFAULT_USDC_PER_DOT = 1_340_000; // baseline ~1.34 USD/DOT (USDC smallest per 1e18 internal DOT)
 
@@ -24,10 +26,13 @@ abstract contract DeploySparklBase is Script {
 
     /// @param registryOwner Passed to `ProviderRegistry.owner` — typically the broadcaster.
     /// @param attestationService `ProviderRegistry` constructor second arg (has `setTEEProof` authority).
-    function deploySparklCore(address registryOwner, address attestationService, uint256 deployerPk)
-        internal
-        returns (Deployment memory d)
-    {
+    /// @param escrowNativeDecimals Hub Asset Hub DOT: 10 (Planck). Anvil / standard EVM: 18 (`msg.value` wei).
+    function deploySparklCore(
+        address registryOwner,
+        address attestationService,
+        uint256 deployerPk,
+        uint8 escrowNativeDecimals
+    ) internal returns (Deployment memory d) {
         d.registryOwner = registryOwner;
         d.attestationService = attestationService;
 
@@ -39,7 +44,8 @@ abstract contract DeploySparklBase is Script {
         MockERC20 usdc = new MockERC20("USDC", 6);
 
         ProviderRegistry registry = new ProviderRegistry(registryOwner, attestationService);
-        SettlementEscrow escrow = new SettlementEscrow(registry, oracle, usdc);
+        SettlementEscrow escrow = new SettlementEscrow(registry, oracle, usdc, escrowNativeDecimals);
+        registry.setSettlementEscrow(address(escrow));
 
         vm.stopBroadcast();
 

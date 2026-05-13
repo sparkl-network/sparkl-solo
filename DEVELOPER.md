@@ -40,21 +40,21 @@ Solidity sources for these contracts live under [`contracts/`](./contracts/) (Fo
 
 ## TEE-tier onboarding (stub attestation)
 
-**On-chain.** [`ProviderRegistry.setTEEProof(address provider, bytes32 teeReportHash)`](./contracts/src/ProviderRegistry.sol) records the Tier A (**`TEE_VERIFIED`**) flag and evidence digest. Only the registry **`attestationService`** address may call it; the owner sets that address via `setAttestationService` (deploy-time constructor + optional updates). The hash is typically **`keccak256(attestationReportBytes)`** for an opaque `report` blob (stub today; later DCAP / SEV-SNP / Nitro verification fills in that blob).
+**On-chain.** [`ProviderRegistry.setTEEProof(bytes32 nodeId, bytes32 teeReportHash)`](./contracts/src/ProviderRegistry.sol) records the Tier A (**`TEE_VERIFIED`**) flag and evidence digest. Only the registry **`attestationService`** address may call it; the owner sets that address via `setAttestationService` (deploy-time constructor + optional updates). The hash is typically **`keccak256(attestationReportBytes)`** for an opaque `report` blob (stub today; later DCAP / SEV-SNP / Nitro verification fills in that blob).
 
 **Off-chain stub.** [`services/tee-attestation-stub/`](./services/tee-attestation-stub/README.md) is a tiny HTTP service that:
 
 1. Issues a short-lived **challenge** (`GET /v1/challenge`).
-2. Verifies the **provider wallet** signed that challenge (EIP-191 `personal_sign` / `Wallet.signMessage` of the returned `message`).
-3. Submits **`setTEEProof(provider, keccak256(report))`** with **`ethers.js`** using **`ADMIN_PRIVATE_KEY`**, which **must** be the same key as `registry.attestationService()` on the target chain.
+2. Verifies the **node operator** wallet signed that challenge (EIP-191 `personal_sign` / `Wallet.signMessage` of the returned `message`). The recovered signer must equal **`nodeOperator(nodeId)`** on the registry.
+3. Submits **`setTEEProof(nodeId, keccak256(report))`** with **`ethers.js`** using **`ADMIN_PRIVATE_KEY`**, which **must** be the same key as `registry.attestationService()` on the target chain.
 
 **Provider checklist (pre–real TEE):**
 
 1. Deploy `ProviderRegistry` + `SettlementEscrow` (e.g. [`contracts/script/DeployLocal.s.sol`](./contracts/script/DeployLocal.s.sol) on Anvil, or [`contracts/script/DeployPaseo.s.sol`](./contracts/script/DeployPaseo.s.sol) on Paseo). Note `ProviderRegistry` and **`attestationService`** on deploy.
-2. From the **provider operator key**, call **`registerProvider(...)`** on the live registry so the provider row exists (required for `setTEEProof`).
+2. From the **operator key**, call **`registerNode(nodeId, ...)`** so the node row exists (required for `setTEEProof`). **`nodeId`** is a **`bytes32`** on-chain identity (e.g. Substrate PeerId hash), **not** the operator EOA.
 3. Configure the stub: `RPC_URL`, `PROVIDER_REGISTRY_ADDRESS`, `ADMIN_PRIVATE_KEY` (**attestation signer** env var name is historical — it is the **`attestationService`** key). Run `yarn start` in `services/tee-attestation-stub/`.
-4. Client: `GET /v1/challenge` → provider signs **`message`** with the registered provider wallet → `POST /v1/attest` with `providerAddress`, `report` (hex stub bytes), `challengeId`, `signature`.
-5. Confirm on-chain (`supportsTier(provider, TEE_VERIFIED)`, `teeReportHash`) via `cast`, explorer, or your indexer.
+4. Client: `GET /v1/challenge` → operator signs **`message`** with the wallet that is **`nodeOperator(nodeId)`** → `POST /v1/attest` with **`nodeId`** (`0x` + 64 hex, the same **`bytes32`** passed to **`registerNode`**), `report` (hex stub bytes), `challengeId`, `signature`.
+5. Confirm on-chain (`supportsTier(nodeId, TEE_VERIFIED)`, `teeReportHash`) via `cast`, explorer, or your indexer.
 6. **Later:** Replace stub `report` handling with real verifier logic; keep the same on-chain **`keccak256(report)`** commitment pattern or migrate via a governance-approved registry upgrade path.
 
 Detailed API and snippets: **`services/tee-attestation-stub/README.md`**.

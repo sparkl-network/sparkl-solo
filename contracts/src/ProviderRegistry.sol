@@ -1,35 +1,48 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {SecurityTier, ProviderInfo} from "./SecurityTypes.sol";
+import {SecurityTier, NodeInfo, NodeLifecycle} from "./SecurityTypes.sol";
 import {IProviderRegistry} from "./interfaces/IProviderRegistry.sol";
+import {ISettlementEscrowOpenSessions} from "./interfaces/ISettlementEscrowOpenSessions.sol";
 
 /// @title ProviderRegistry
-/// @notice On-chain registry of providers, payout addresses, tier capabilities, TEE evidence hash, and per-tier pricing.
+/// @notice Registry of provider nodes: `nodeId` is a stable identity (e.g. Substrate PeerId hash); `msg.sender` registers as the operator.
 contract ProviderRegistry is IProviderRegistry {
     address public owner;
     address public attestationService;
+    /// @notice Escrow reporting open session counts per node; set by owner after deploy.
+    address public settlementEscrow;
 
-    mapping(address => ProviderInfo) internal _providers;
-    mapping(address => mapping(SecurityTier => uint256)) internal _pricePer1k;
-    mapping(address => string) internal _metadataURI;
+    mapping(bytes32 nodeId => NodeInfo) public nodes;
+    mapping(bytes32 nodeId => address operator) public nodeOperator;
+    mapping(address operator => bytes32[] nodeIds) internal _operatorNodes;
+    mapping(bytes32 nodeId => mapping(SecurityTier tier => uint256 pricePer1k)) internal _pricePer1k;
 
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
     event AttestationServiceUpdated(address indexed previous, address indexed next);
-    event ProviderRegistered(
-        address indexed provider, address payout, bool supportsBestEffort, bool supportsTEE, string metadataURI
-    );
-    event ProviderPayoutUpdated(address indexed provider, address payout);
-    event ProviderActiveUpdated(address indexed provider, bool active);
-    event ProviderFeeUpdated(address indexed provider, uint16 feeBps);
-    event TEEProofSet(address indexed provider, bytes32 teeReportHash);
-    event PricingUpdated(address indexed provider, SecurityTier tier, uint256 pricePer1kTokens);
+    event SettlementEscrowUpdated(address indexed previous, address indexed next);
+    event NodeRegistered(bytes32 indexed nodeId, address indexed operator, string metadataURI);
+    event NodePayoutUpdated(bytes32 indexed nodeId, address payout);
+    event NodeActiveUpdated(bytes32 indexed nodeId, bool active);
+    event NodeFeeUpdated(bytes32 indexed nodeId, uint16 feeBps);
+    event NodeMetadataUpdated(bytes32 indexed nodeId, string metadataURI);
+    event TEEProofSet(bytes32 indexed nodeId, bytes32 teeReportHash);
+    event PricingUpdated(bytes32 indexed nodeId, SecurityTier tier, uint256 pricePer1kTokens);
+    event NodeChilled(bytes32 indexed nodeId, address indexed operator);
+    event NodeMarkedDefunct(bytes32 indexed nodeId, address indexed operator);
+    event NodePurged(bytes32 indexed nodeId, address indexed operator);
 
     error NotOwner();
     error NotAttestationService();
+    error NotNodeOperator();
     error ZeroAddress();
-    error ProviderNotRegistered();
+    error ZeroNodeId();
+    error NodeNotRegistered();
+    error NodeAlreadyRegistered();
     error InvalidTEEProof();
+    error InvalidLifecycle();
+    error EscrowNotConfigured();
+    error OpenSessionsRemain();
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert NotOwner();
@@ -38,6 +51,11 @@ contract ProviderRegistry is IProviderRegistry {
 
     modifier onlyAttestationService() {
         if (msg.sender != attestationService) revert NotAttestationService();
+        _;
+    }
+
+    modifier onlyNodeOperator(bytes32 nodeId) {
+        if (nodeOperator[nodeId] != msg.sender) revert NotNodeOperator();
         _;
     }
 
@@ -58,83 +76,157 @@ contract ProviderRegistry is IProviderRegistry {
         attestationService = next;
     }
 
-    /// @notice Provider self-registration. `feeBps` defaults to 0; use `setProviderFee` (owner) for platform rev-share if needed.
-    function registerProvider(address payout, bool supportsBestEffort, bool supportsTEE, string calldata metadataURI)
-        external
-    {
-        address provider = msg.sender;
-        if (payout == address(0)) revert ZeroAddress();
+    /// @notice Wire the settlement escrow used for `openSessionCountByNode` reads (e.g. after both contracts are deployed).
+    function setSettlementEscrow(address escrow) external onlyOwner {
+        emit SettlementEscrowUpdated(settlementEscrow, escrow);
+        settlementEscrow = escrow;
+    }
 
-        _providers[provider] = ProviderInfo({
-            payout: payout,
+    /// @notice Register a node identity; caller becomes the operator. `payout == address(0)` defaults to `msg.sender`.
+    function registerNode(
+        bytes32 nodeId,
+        address payout,
+        bool supportsBestEffort,
+        bool supportsTEE,
+        string calldata metadataURI
+    ) external {
+        if (nodeId == bytes32(0)) revert ZeroNodeId();
+        if (nodeOperator[nodeId] != address(0)) revert NodeAlreadyRegistered();
+
+        nodeOperator[nodeId] = msg.sender;
+        _operatorNodes[msg.sender].push(nodeId);
+        nodes[nodeId] = NodeInfo({
+            payout: payout == address(0) ? msg.sender : payout,
             feeBps: 0,
             active: true,
             supportsBestEffort: supportsBestEffort,
-            // TEE-verified tier is only valid after attestation (`setTEEProof`).
-            supportsTEE: false,
-            teeReportHash: bytes32(0)
+            supportsTEE: supportsTEE,
+            teeReportHash: bytes32(0),
+            metadataURI: metadataURI,
+            lifecycle: NodeLifecycle.Active
         });
-        _metadataURI[provider] = metadataURI;
 
-        emit ProviderRegistered(provider, payout, supportsBestEffort, supportsTEE, metadataURI);
+        emit NodeRegistered(nodeId, msg.sender, metadataURI);
     }
 
-    function setProviderPayout(address payout) external {
-        address provider = msg.sender;
-        if (_providers[provider].payout == address(0)) revert ProviderNotRegistered();
+    /// @notice Active → Chilled: stops new sessions (`supportsTier`). Existing escrow sessions may still settle.
+    function chillNode(bytes32 nodeId) external onlyNodeOperator(nodeId) {
+        if (nodeOperator[nodeId] == address(0)) revert NodeNotRegistered();
+        NodeInfo storage n = nodes[nodeId];
+        if (n.lifecycle != NodeLifecycle.Active) revert InvalidLifecycle();
+        n.lifecycle = NodeLifecycle.Chilled;
+        n.active = false;
+        emit NodeChilled(nodeId, msg.sender);
+        emit NodeActiveUpdated(nodeId, false);
+    }
+
+    /// @notice Chilled → Defunct: requires zero open sessions in the configured escrow.
+    function markDefunct(bytes32 nodeId) external onlyNodeOperator(nodeId) {
+        if (nodeOperator[nodeId] == address(0)) revert NodeNotRegistered();
+        NodeInfo storage n = nodes[nodeId];
+        if (n.lifecycle != NodeLifecycle.Chilled) revert InvalidLifecycle();
+        address esc = settlementEscrow;
+        if (esc == address(0)) revert EscrowNotConfigured();
+        if (ISettlementEscrowOpenSessions(esc).openSessionCountByNode(nodeId) != 0) revert OpenSessionsRemain();
+        n.lifecycle = NodeLifecycle.Defunct;
+        emit NodeMarkedDefunct(nodeId, msg.sender);
+    }
+
+    /// @notice Owner-only: removes a defunct node's storage so `nodeId` may be registered again.
+    function purgeDefunctNode(bytes32 nodeId) external onlyOwner {
+        if (nodeOperator[nodeId] == address(0)) revert NodeNotRegistered();
+        NodeInfo storage n = nodes[nodeId];
+        if (n.lifecycle != NodeLifecycle.Defunct) revert InvalidLifecycle();
+        address op = nodeOperator[nodeId];
+        _removeOperatorNode(op, nodeId);
+        _pricePer1k[nodeId][SecurityTier.BEST_EFFORT] = 0;
+        _pricePer1k[nodeId][SecurityTier.TEE_VERIFIED] = 0;
+        delete nodes[nodeId];
+        nodeOperator[nodeId] = address(0);
+        emit NodePurged(nodeId, op);
+    }
+
+    function _removeOperatorNode(address operator, bytes32 nodeId) internal {
+        bytes32[] storage ids = _operatorNodes[operator];
+        uint256 len = ids.length;
+        for (uint256 i = 0; i < len; i++) {
+            if (ids[i] == nodeId) {
+                ids[i] = ids[len - 1];
+                ids.pop();
+                return;
+            }
+        }
+        revert NodeNotRegistered();
+    }
+
+    function setNodePayout(bytes32 nodeId, address payout) external onlyNodeOperator(nodeId) {
         if (payout == address(0)) revert ZeroAddress();
-        _providers[provider].payout = payout;
-        emit ProviderPayoutUpdated(provider, payout);
+        nodes[nodeId].payout = payout;
+        emit NodePayoutUpdated(nodeId, payout);
     }
 
-    function setProviderActive(bool active) external {
-        address provider = msg.sender;
-        if (_providers[provider].payout == address(0)) revert ProviderNotRegistered();
-        _providers[provider].active = active;
-        emit ProviderActiveUpdated(provider, active);
+    function setNodeActive(bytes32 nodeId, bool active) external onlyNodeOperator(nodeId) {
+        if (nodeOperator[nodeId] == address(0)) revert NodeNotRegistered();
+        nodes[nodeId].active = active;
+        emit NodeActiveUpdated(nodeId, active);
     }
 
-    function setProviderFee(address provider, uint16 feeBps) external onlyOwner {
-        if (_providers[provider].payout == address(0)) revert ProviderNotRegistered();
-        _providers[provider].feeBps = feeBps;
-        emit ProviderFeeUpdated(provider, feeBps);
+    function setNodeMetadata(bytes32 nodeId, string calldata uri) external onlyNodeOperator(nodeId) {
+        if (nodeOperator[nodeId] == address(0)) revert NodeNotRegistered();
+        nodes[nodeId].metadataURI = uri;
+        emit NodeMetadataUpdated(nodeId, uri);
     }
 
-    /// @notice Attestation service records evidence; this is the on-chain source of truth for Tier A (`TEE_VERIFIED`).
-    /// @dev MVP stub: sibling folder services/tee-attestation-stub; verify attestation payloads before production use.
-    function setTEEProof(address provider, bytes32 teeReportHash) external onlyAttestationService {
-        if (_providers[provider].payout == address(0)) revert ProviderNotRegistered();
+    function setNodeFee(bytes32 nodeId, uint16 feeBps) external onlyOwner {
+        if (nodeOperator[nodeId] == address(0)) revert NodeNotRegistered();
+        nodes[nodeId].feeBps = feeBps;
+        emit NodeFeeUpdated(nodeId, feeBps);
+    }
+
+    /// @notice Attestation service records TEE evidence; Tier `TEE_VERIFIED` requires a non-zero hash (`supportsTier`).
+    function setTEEProof(bytes32 nodeId, bytes32 teeReportHash) external onlyAttestationService {
+        if (nodeOperator[nodeId] == address(0)) revert NodeNotRegistered();
         if (teeReportHash == bytes32(0)) revert InvalidTEEProof();
-        _providers[provider].supportsTEE = true;
-        _providers[provider].teeReportHash = teeReportHash;
-        emit TEEProofSet(provider, teeReportHash);
+        nodes[nodeId].supportsTEE = true;
+        nodes[nodeId].teeReportHash = teeReportHash;
+        emit TEEProofSet(nodeId, teeReportHash);
     }
 
-    /// @notice Declared price for `tier` in DOT internal units (1e18 per whole DOT) per 1_000 tokens, matching `SettlementEscrow` accounting.
-    function setPricing(SecurityTier tier, uint256 pricePer1kTokens) external {
-        address provider = msg.sender;
-        if (_providers[provider].payout == address(0)) revert ProviderNotRegistered();
-        _pricePer1k[provider][tier] = pricePer1kTokens;
-        emit PricingUpdated(provider, tier, pricePer1kTokens);
+    /// @notice Declared price for `tier` per 1_000 tokens (internal DOT units), matching `SettlementEscrow` accounting.
+    function setNodePricing(bytes32 nodeId, SecurityTier tier, uint256 pricePer1kTokens)
+        external
+        onlyNodeOperator(nodeId)
+    {
+        if (nodeOperator[nodeId] == address(0)) revert NodeNotRegistered();
+        _pricePer1k[nodeId][tier] = pricePer1kTokens;
+        emit PricingUpdated(nodeId, tier, pricePer1kTokens);
     }
 
-    function getProvider(address provider) external view returns (ProviderInfo memory) {
-        return _providers[provider];
+    /// @dev Argument is `nodeId`. Name kept for ABI compatibility with existing integrations.
+    function getProvider(bytes32 nodeId) external view returns (NodeInfo memory) {
+        return nodes[nodeId];
     }
 
-    function getMetadataURI(address provider) external view returns (string memory) {
-        return _metadataURI[provider];
+    function getMetadataURI(bytes32 nodeId) external view returns (string memory) {
+        return nodes[nodeId].metadataURI;
     }
 
-    function getPricePer1k(address provider, SecurityTier tier) external view returns (uint256) {
-        return _pricePer1k[provider][tier];
+    function getPricePer1k(bytes32 nodeId, SecurityTier tier) external view returns (uint256) {
+        return _pricePer1k[nodeId][tier];
     }
 
     /// @notice Used by escrow and off-chain aggregators to enforce tier eligibility.
-    function supportsTier(address provider, SecurityTier tier) external view returns (bool) {
-        ProviderInfo memory p = _providers[provider];
-        if (!p.active || p.payout == address(0)) return false;
-        if (tier == SecurityTier.BEST_EFFORT) return p.supportsBestEffort;
-        return p.supportsTEE && p.teeReportHash != bytes32(0);
+    function supportsTier(bytes32 nodeId, SecurityTier tier) external view returns (bool) {
+        NodeInfo memory n = nodes[nodeId];
+        if (n.lifecycle != NodeLifecycle.Active) return false;
+        if (!n.active || n.payout == address(0)) return false;
+        if (tier == SecurityTier.BEST_EFFORT) return n.supportsBestEffort;
+        return n.supportsTEE && n.teeReportHash != bytes32(0);
+    }
+
+    /// @notice All node IDs controlled by `operator` (order matches registration).
+    /// @dev Exposed as a function instead of `public mapping(...)` because Solidity maps-to-array getters use `(operator, index)`, not a full slice.
+    function operatorNodes(address operator) external view returns (bytes32[] memory) {
+        return _operatorNodes[operator];
     }
 }

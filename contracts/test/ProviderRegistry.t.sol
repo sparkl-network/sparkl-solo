@@ -3,63 +3,105 @@ pragma solidity ^0.8.20;
 
 import {Test} from "forge-std/Test.sol";
 import {ProviderRegistry} from "../src/ProviderRegistry.sol";
-import {SecurityTier, ProviderInfo} from "../src/SecurityTypes.sol";
+import {SecurityTier, NodeInfo, NodeLifecycle} from "../src/SecurityTypes.sol";
+
+/// @dev Implements `openSessionCountByNode` for registry `markDefunct` tests.
+contract MockEscrowOpenCounts {
+    mapping(bytes32 => uint256) internal _counts;
+
+    function openSessionCountByNode(bytes32 nodeId) external view returns (uint256) {
+        return _counts[nodeId];
+    }
+
+    function setOpenCount(bytes32 nodeId, uint256 v) external {
+        _counts[nodeId] = v;
+    }
+}
 
 contract ProviderRegistryTest is Test {
     ProviderRegistry internal reg;
 
     address internal owner = address(0xAce0);
     address internal attestation = address(0xA777);
-    address internal provider = address(0xB00B);
+    address internal operator = address(0xB00B);
+    /// @dev Address used only to derive a test `bytes32` node id.
+    address internal nodeAddr = address(0xC0DE);
     address internal payout = address(0xCAFE);
+
+    function _nid(address a) internal pure returns (bytes32) {
+        return bytes32(uint256(uint160(a)));
+    }
 
     function setUp() public {
         vm.prank(owner);
         reg = new ProviderRegistry(owner, attestation);
     }
 
-    function test_registerProvider_setPricing_metadata() public {
-        vm.startPrank(provider);
-        reg.registerProvider(payout, true, true, "ipfs://meta");
+    function test_registerNode_setNodePricing_metadata() public {
+        bytes32 nodeId = _nid(nodeAddr);
+        vm.startPrank(operator);
+        reg.registerNode(nodeId, payout, true, true, "ipfs://meta");
         vm.stopPrank();
 
-        ProviderInfo memory p = reg.getProvider(provider);
-        assertEq(p.payout, payout);
-        assertTrue(p.active);
-        assertTrue(p.supportsBestEffort);
-        assertFalse(p.supportsTEE);
-        assertEq(p.teeReportHash, bytes32(0));
-        assertEq(keccak256(bytes(reg.getMetadataURI(provider))), keccak256(bytes("ipfs://meta")));
+        assertEq(reg.nodeOperator(nodeId), operator);
+        bytes32[] memory on = reg.operatorNodes(operator);
+        assertEq(on.length, 1);
+        assertEq(on[0], nodeId);
 
-        vm.prank(provider);
-        reg.setPricing(SecurityTier.BEST_EFFORT, 123);
-        assertEq(reg.getPricePer1k(provider, SecurityTier.BEST_EFFORT), 123);
+        NodeInfo memory n = reg.getProvider(nodeId);
+        assertEq(n.payout, payout);
+        assertTrue(n.active);
+        assertTrue(n.supportsBestEffort);
+        assertTrue(n.supportsTEE);
+        assertEq(n.teeReportHash, bytes32(0));
+        assertEq(keccak256(bytes(n.metadataURI)), keccak256(bytes("ipfs://meta")));
+        assertEq(keccak256(bytes(reg.getMetadataURI(nodeId))), keccak256(bytes("ipfs://meta")));
+        assertEq(uint8(reg.getProvider(nodeId).lifecycle), uint8(NodeLifecycle.Active));
 
-        vm.prank(provider);
-        reg.setPricing(SecurityTier.TEE_VERIFIED, 456);
-        assertEq(reg.getPricePer1k(provider, SecurityTier.TEE_VERIFIED), 456);
+        vm.prank(operator);
+        reg.setNodePricing(nodeId, SecurityTier.BEST_EFFORT, 123);
+        assertEq(reg.getPricePer1k(nodeId, SecurityTier.BEST_EFFORT), 123);
+
+        vm.prank(operator);
+        reg.setNodePricing(nodeId, SecurityTier.TEE_VERIFIED, 456);
+        assertEq(reg.getPricePer1k(nodeId, SecurityTier.TEE_VERIFIED), 456);
+    }
+
+    function test_registerNode_zeroPayout_defaultsToOperator() public {
+        bytes32 nodeId = _nid(nodeAddr);
+        vm.prank(operator);
+        reg.registerNode(nodeId, address(0), true, false, "");
+        assertEq(reg.getProvider(nodeId).payout, operator);
+    }
+
+    function test_registerNode_revert_zeroId() public {
+        vm.prank(operator);
+        vm.expectRevert(ProviderRegistry.ZeroNodeId.selector);
+        reg.registerNode(bytes32(0), payout, true, false, "");
     }
 
     function test_supportsTier_bestEffort_inactive() public {
-        vm.prank(provider);
-        reg.registerProvider(payout, true, false, "");
-        assertTrue(reg.supportsTier(provider, SecurityTier.BEST_EFFORT));
+        bytes32 nodeId = _nid(nodeAddr);
+        vm.prank(operator);
+        reg.registerNode(nodeId, payout, true, false, "");
+        assertTrue(reg.supportsTier(nodeId, SecurityTier.BEST_EFFORT));
 
-        vm.prank(provider);
-        reg.setProviderActive(false);
-        assertFalse(reg.supportsTier(provider, SecurityTier.BEST_EFFORT));
+        vm.prank(operator);
+        reg.setNodeActive(nodeId, false);
+        assertFalse(reg.supportsTier(nodeId, SecurityTier.BEST_EFFORT));
     }
 
     function test_supportsTier_bestEffort_falseWhenNotSupported() public {
-        vm.prank(provider);
-        reg.registerProvider(payout, false, false, "");
-        assertFalse(reg.supportsTier(provider, SecurityTier.BEST_EFFORT));
+        bytes32 nodeId = _nid(nodeAddr);
+        vm.prank(operator);
+        reg.registerNode(nodeId, payout, false, false, "");
+        assertFalse(reg.supportsTier(nodeId, SecurityTier.BEST_EFFORT));
     }
 
-    function test_supportsTier_teeOnlyProvider_rejectsBestEffort() public {
-        address teeOnly = address(0xC0DE);
-        vm.prank(teeOnly);
-        reg.registerProvider(payout, false, true, "");
+    function test_supportsTier_teeOnlyNode_rejectsBestEffort() public {
+        bytes32 teeOnly = _nid(address(0xC0DE2));
+        vm.prank(operator);
+        reg.registerNode(teeOnly, payout, false, true, "");
         vm.prank(attestation);
         reg.setTEEProof(teeOnly, bytes32(uint256(0x99)));
 
@@ -67,65 +109,185 @@ contract ProviderRegistryTest is Test {
         assertTrue(reg.supportsTier(teeOnly, SecurityTier.TEE_VERIFIED));
     }
 
-    function test_supportsTier_teeOnlyAfterProof() public {
-        vm.prank(provider);
-        reg.registerProvider(payout, true, true, "");
-        assertFalse(reg.supportsTier(provider, SecurityTier.TEE_VERIFIED));
+    function test_supportsTier_teeDeclaredButNeedsProofForTier() public {
+        bytes32 nodeId = _nid(nodeAddr);
+        vm.prank(operator);
+        reg.registerNode(nodeId, payout, true, true, "");
+        assertFalse(reg.supportsTier(nodeId, SecurityTier.TEE_VERIFIED));
 
         vm.prank(attestation);
-        reg.setTEEProof(provider, bytes32(uint256(1)));
-        assertTrue(reg.supportsTier(provider, SecurityTier.TEE_VERIFIED));
+        reg.setTEEProof(nodeId, bytes32(uint256(1)));
+        assertTrue(reg.supportsTier(nodeId, SecurityTier.TEE_VERIFIED));
 
-        ProviderInfo memory p = reg.getProvider(provider);
-        assertTrue(p.supportsTEE);
-        assertEq(p.teeReportHash, bytes32(uint256(1)));
+        NodeInfo memory n = reg.getProvider(nodeId);
+        assertTrue(n.supportsTEE);
+        assertEq(n.teeReportHash, bytes32(uint256(1)));
     }
 
     function test_setTEEProof_revert_notAttestation() public {
-        vm.prank(provider);
-        reg.registerProvider(payout, true, false, "");
+        bytes32 nodeId = _nid(nodeAddr);
+        vm.prank(operator);
+        reg.registerNode(nodeId, payout, true, false, "");
 
         vm.prank(address(0xDEAD));
         vm.expectRevert(ProviderRegistry.NotAttestationService.selector);
-        reg.setTEEProof(provider, bytes32(uint256(1)));
+        reg.setTEEProof(nodeId, bytes32(uint256(1)));
     }
 
     function test_setTEEProof_revert_zeroHash() public {
-        vm.prank(provider);
-        reg.registerProvider(payout, true, false, "");
+        bytes32 nodeId = _nid(nodeAddr);
+        vm.prank(operator);
+        reg.registerNode(nodeId, payout, true, false, "");
 
         vm.prank(attestation);
         vm.expectRevert(ProviderRegistry.InvalidTEEProof.selector);
-        reg.setTEEProof(provider, bytes32(0));
+        reg.setTEEProof(nodeId, bytes32(0));
     }
 
     function test_setTEEProof_revert_unregistered() public {
         vm.prank(attestation);
-        vm.expectRevert(ProviderRegistry.ProviderNotRegistered.selector);
-        reg.setTEEProof(provider, bytes32(uint256(1)));
+        vm.expectRevert(ProviderRegistry.NodeNotRegistered.selector);
+        reg.setTEEProof(_nid(nodeAddr), bytes32(uint256(1)));
     }
 
-    function test_setProviderPayout_and_fee() public {
-        vm.prank(provider);
-        reg.registerProvider(payout, true, false, "");
+    function test_setNodePayout_and_fee() public {
+        bytes32 nodeId = _nid(nodeAddr);
+        vm.prank(operator);
+        reg.registerNode(nodeId, payout, true, false, "");
 
         address p2 = address(0x1111);
-        vm.prank(provider);
-        reg.setProviderPayout(p2);
-        assertEq(reg.getProvider(provider).payout, p2);
+        vm.prank(operator);
+        reg.setNodePayout(nodeId, p2);
+        assertEq(reg.getProvider(nodeId).payout, p2);
 
         vm.prank(owner);
-        reg.setProviderFee(provider, 100);
-        assertEq(reg.getProvider(provider).feeBps, 100);
+        reg.setNodeFee(nodeId, 100);
+        assertEq(reg.getProvider(nodeId).feeBps, 100);
     }
 
-    function test_setProviderFee_revert_notOwner() public {
-        vm.prank(provider);
-        reg.registerProvider(payout, true, false, "");
+    function test_setNodeFee_revert_notOwner() public {
+        bytes32 nodeId = _nid(nodeAddr);
+        vm.prank(operator);
+        reg.registerNode(nodeId, payout, true, false, "");
 
-        vm.prank(provider);
+        vm.prank(operator);
         vm.expectRevert(ProviderRegistry.NotOwner.selector);
-        reg.setProviderFee(provider, 1);
+        reg.setNodeFee(nodeId, 1);
+    }
+
+    function test_onlyNodeOperator_revert() public {
+        bytes32 nodeId = _nid(nodeAddr);
+        vm.prank(operator);
+        reg.registerNode(nodeId, payout, true, false, "");
+
+        vm.prank(address(0xBAD));
+        vm.expectRevert(ProviderRegistry.NotNodeOperator.selector);
+        reg.setNodeActive(nodeId, false);
+    }
+
+    function test_registerNode_revert_twice() public {
+        bytes32 nodeId = _nid(nodeAddr);
+        vm.startPrank(operator);
+        reg.registerNode(nodeId, payout, true, false, "");
+        vm.expectRevert(ProviderRegistry.NodeAlreadyRegistered.selector);
+        reg.registerNode(nodeId, payout, true, false, "");
+        vm.stopPrank();
+    }
+
+    function test_supportsTier_false_when_chilled() public {
+        bytes32 nodeId = _nid(nodeAddr);
+        vm.prank(operator);
+        reg.registerNode(nodeId, payout, true, false, "");
+        assertTrue(reg.supportsTier(nodeId, SecurityTier.BEST_EFFORT));
+
+        vm.prank(operator);
+        reg.chillNode(nodeId);
+        assertFalse(reg.supportsTier(nodeId, SecurityTier.BEST_EFFORT));
+        assertEq(uint8(reg.getProvider(nodeId).lifecycle), uint8(NodeLifecycle.Chilled));
+        assertFalse(reg.getProvider(nodeId).active);
+    }
+
+    function test_chillNode_revert_notActive() public {
+        bytes32 nodeId = _nid(nodeAddr);
+        vm.startPrank(operator);
+        reg.registerNode(nodeId, payout, true, false, "");
+        reg.chillNode(nodeId);
+        vm.expectRevert(ProviderRegistry.InvalidLifecycle.selector);
+        reg.chillNode(nodeId);
+        vm.stopPrank();
+    }
+
+    function test_markDefunct_revert_escrow_not_configured() public {
+        bytes32 nodeId = _nid(nodeAddr);
+        vm.startPrank(operator);
+        reg.registerNode(nodeId, payout, true, false, "");
+        reg.chillNode(nodeId);
+        vm.expectRevert(ProviderRegistry.EscrowNotConfigured.selector);
+        reg.markDefunct(nodeId);
+        vm.stopPrank();
+    }
+
+    function test_markDefunct_revert_open_sessions_remain() public {
+        MockEscrowOpenCounts mockEsc = new MockEscrowOpenCounts();
+        vm.prank(owner);
+        reg.setSettlementEscrow(address(mockEsc));
+
+        bytes32 nodeId = _nid(nodeAddr);
+        vm.startPrank(operator);
+        reg.registerNode(nodeId, payout, true, false, "");
+        reg.chillNode(nodeId);
+        mockEsc.setOpenCount(nodeId, 1);
+        vm.expectRevert(ProviderRegistry.OpenSessionsRemain.selector);
+        reg.markDefunct(nodeId);
+        vm.stopPrank();
+    }
+
+    function test_markDefunct_ok_then_purge_allows_reregister() public {
+        MockEscrowOpenCounts mockEsc = new MockEscrowOpenCounts();
+        vm.prank(owner);
+        reg.setSettlementEscrow(address(mockEsc));
+
+        bytes32 nodeId = _nid(nodeAddr);
+        vm.startPrank(operator);
+        reg.registerNode(nodeId, payout, true, false, "");
+        reg.setNodePricing(nodeId, SecurityTier.BEST_EFFORT, 99);
+        reg.chillNode(nodeId);
+        mockEsc.setOpenCount(nodeId, 0);
+        reg.markDefunct(nodeId);
+        vm.stopPrank();
+
+        assertEq(uint8(reg.getProvider(nodeId).lifecycle), uint8(NodeLifecycle.Defunct));
+        assertEq(reg.nodeOperator(nodeId), operator);
+
+        vm.prank(owner);
+        reg.purgeDefunctNode(nodeId);
+
+        assertEq(reg.nodeOperator(nodeId), address(0));
+        assertEq(reg.getPricePer1k(nodeId, SecurityTier.BEST_EFFORT), 0);
+        assertEq(reg.operatorNodes(operator).length, 0);
+        NodeInfo memory n = reg.getProvider(nodeId);
+        assertEq(n.payout, address(0));
+
+        vm.prank(operator);
+        reg.registerNode(nodeId, payout, true, false, "meta2");
+        assertEq(reg.nodeOperator(nodeId), operator);
+    }
+
+    function test_purgeDefunctNode_revert_notOwner() public {
+        MockEscrowOpenCounts mockEsc = new MockEscrowOpenCounts();
+        vm.prank(owner);
+        reg.setSettlementEscrow(address(mockEsc));
+
+        bytes32 nodeId = _nid(nodeAddr);
+        vm.startPrank(operator);
+        reg.registerNode(nodeId, payout, true, false, "");
+        reg.chillNode(nodeId);
+        reg.markDefunct(nodeId);
+        vm.stopPrank();
+
+        vm.prank(operator);
+        vm.expectRevert(ProviderRegistry.NotOwner.selector);
+        reg.purgeDefunctNode(nodeId);
     }
 
     function test_transferOwnership_and_attestationService() public {

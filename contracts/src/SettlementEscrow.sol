@@ -17,8 +17,15 @@ contract SettlementEscrow {
     IPriceOracle public immutable priceOracle;
     IERC20 public immutable usdc;
 
+    /// @notice Smallest-units per whole native token on this chain (Hub DOT: 10 = Planck; standard EVM dev: 18 = wei).
+    uint8 public immutable nativeDotDecimals;
+
+    /// @notice Privileged role that finalizes settlement splits (`settleByOperator*`). Set by registry governance (`registry.owner()`).
+    address public settlementOperator;
+
     mapping(address => uint256) public dotBalances;
-    mapping(address => uint256) public providerBalances;
+    /// @notice Internal DOT credited to a node (`nodeId`) from session settles; withdrawn by the node operator.
+    mapping(bytes32 => uint256) public providerBalances;
 
     /// @notice Sum of `Session.lockedInternal` across non-settled sessions (and settled sessions hold `lockedInternal == 0`).
     uint256 public totalLockedInternal;
@@ -29,16 +36,21 @@ contract SettlementEscrow {
 
     struct Session {
         address user;
-        address provider;
+        /// @notice Registry node key (e.g. Substrate PeerId hash), not an EVM address.
+        bytes32 nodeId;
         SecurityTier tier;
         uint256 lockedInternal;
         uint256 usageRecorded;
+        /// @notice Running total of internal DOT credited to `providerBalances` from this session via settles.
+        uint256 paidToProviderInternal;
         uint256 openingInternal;
         uint64 openedAt;
         bool settled;
     }
 
     uint256 public nextSessionId;
+    /// @notice Non-settled sessions per `nodeId`; decremented exactly once when `settled` becomes true.
+    mapping(bytes32 nodeId => uint256) public openSessionCountByNode;
     mapping(uint256 => Session) public sessions;
 
     event DotDeposited(address indexed user, uint256 amountNative, uint256 creditedInternal);
@@ -48,7 +60,7 @@ contract SettlementEscrow {
     event SessionOpened(
         uint256 indexed sessionId,
         address indexed user,
-        address indexed provider,
+        bytes32 indexed nodeId,
         SecurityTier tier,
         uint256 lockedInternal
     );
@@ -56,9 +68,11 @@ contract SettlementEscrow {
     event SessionFundsReleased(
         uint256 indexed sessionId, uint256 toProvider, uint256 toUser, uint256 remainingLockedInternal
     );
+    event SettlementOperatorUpdated(address indexed previous, address indexed next);
 
     error UnsupportedTier();
     error BadAmount();
+    error BadNativeDecimals();
     error TransferFailed();
     error InsufficientBalance();
     error UnknownSession();
@@ -68,11 +82,35 @@ contract SettlementEscrow {
     error BadSettleSplit();
     error OracleStale();
     error Slippage();
+    error NotSettlementOperator();
+    error NotRegistryOwner();
+    error OpenSessionCounterUnderflow();
 
-    constructor(IProviderRegistry registry_, IPriceOracle priceOracle_, IERC20 usdc_) {
+    modifier onlySettlementOperator() {
+        if (msg.sender != settlementOperator) revert NotSettlementOperator();
+        _;
+    }
+
+    constructor(
+        IProviderRegistry registry_,
+        IPriceOracle priceOracle_,
+        IERC20 usdc_,
+        uint8 nativeDotDecimals_
+    ) {
         registry = registry_;
         priceOracle = priceOracle_;
         usdc = usdc_;
+        if (nativeDotDecimals_ == 0 || nativeDotDecimals_ > INTERNAL_DOT_DECIMALS) {
+            revert BadNativeDecimals();
+        }
+        nativeDotDecimals = nativeDotDecimals_;
+    }
+
+    /// @notice Registry owner assigns the settlement operator (may be `address(0)` to disable operator settles).
+    function setSettlementOperator(address next) external {
+        if (msg.sender != registry.owner()) revert NotRegistryOwner();
+        emit SettlementOperatorUpdated(settlementOperator, next);
+        settlementOperator = next;
     }
 
     /// @notice Accept native DOT and credit internal DOT-denominated balance.
@@ -126,11 +164,12 @@ contract SettlementEscrow {
         emit UsdcDepositedAsDot(msg.sender, usdcAmount, credited);
     }
 
-    /// @notice Withdraw internal provider balance accrued from settles, paid as native DOT.
-    function withdrawProviderDot(uint256 amountInternal) external {
+    /// @notice Withdraw internal balance accrued for `nodeId` (caller must be `registry.nodeOperator(nodeId)`), paid as native DOT.
+    function withdrawProviderDot(bytes32 nodeId, uint256 amountInternal) external {
         if (amountInternal == 0) revert BadAmount();
-        if (providerBalances[msg.sender] < amountInternal) revert InsufficientBalance();
-        providerBalances[msg.sender] -= amountInternal;
+        if (registry.nodeOperator(nodeId) != msg.sender) revert NotSessionProvider();
+        if (providerBalances[nodeId] < amountInternal) revert InsufficientBalance();
+        providerBalances[nodeId] -= amountInternal;
         internalCirculating -= amountInternal;
         uint256 native = _internalToNative(amountInternal);
         (bool ok,) = msg.sender.call{value: native}("");
@@ -138,26 +177,28 @@ contract SettlementEscrow {
         emit ProviderDotWithdrawn(msg.sender, amountInternal, native);
     }
 
-    /// @notice Opens a tier-aware session, locking `amountInternal` for `(msg.sender, provider)`.
+    /// @notice Opens a tier-aware session, locking `amountInternal` for `(msg.sender, nodeId)`.
     /// @dev Pass `msg.value == 0` to consume from `dotBalances`, otherwise `msg.value` must equal `_internalToNative(amountInternal)`
     ///      and the escrow credits native into the lock without touching `dotBalances`.
-    function openSession(address provider, SecurityTier tier, uint256 amountInternal) external payable {
+    function openSession(bytes32 nodeId, SecurityTier tier, uint256 amountInternal) external payable {
         if (amountInternal == 0) revert BadAmount();
-        if (!registry.supportsTier(provider, tier)) revert UnsupportedTier();
+        if (!registry.supportsTier(nodeId, tier)) revert UnsupportedTier();
 
         uint256 id = nextSessionId++;
         sessions[id] = Session({
             user: msg.sender,
-            provider: provider,
+            nodeId: nodeId,
             tier: tier,
             lockedInternal: amountInternal,
             usageRecorded: 0,
+            paidToProviderInternal: 0,
             openingInternal: amountInternal,
             openedAt: uint64(block.timestamp),
             settled: false
         });
 
         totalLockedInternal += amountInternal;
+        openSessionCountByNode[nodeId] += 1;
 
         if (msg.value == 0) {
             if (dotBalances[msg.sender] < amountInternal) revert InsufficientBalance();
@@ -168,35 +209,54 @@ contract SettlementEscrow {
             internalCirculating += amountInternal;
         }
 
-        emit SessionOpened(id, msg.sender, provider, tier, amountInternal);
+        emit SessionOpened(id, msg.sender, nodeId, tier, amountInternal);
     }
 
     /// @notice Provider records cumulative usage toward off-chain metering (does not move funds).
     function recordUsage(uint256 sessionId, uint256 usageDeltaInternal) external {
         Session storage s = sessions[sessionId];
         if (s.user == address(0)) revert UnknownSession();
-        if (s.provider != msg.sender) revert NotSessionProvider();
+        if (registry.nodeOperator(s.nodeId) != msg.sender) revert NotSessionProvider();
         if (s.settled) revert AlreadySettled();
         if (usageDeltaInternal == 0) revert BadAmount();
         s.usageRecorded += usageDeltaInternal;
         emit UsageRecorded(sessionId, s.usageRecorded);
     }
 
-    /// @notice Releases up to remaining lock: pays provider escrow credit and refunds user balance.
+    /// @notice Releases up to remaining lock: pays provider escrow credit and refunds user balance (session user only — escape hatch).
     function settlePartial(uint256 sessionId, uint256 toProvider, uint256 toUser) external {
-        _releaseSessionFunds(sessionId, toProvider, toUser, false);
+        _settle(sessionId, toProvider, toUser, false, true);
     }
 
-    /// @notice Like `settlePartial` but requires paying out the entire remaining lock.
+    /// @notice Like `settlePartial` but requires paying out the entire remaining lock (session user only — escape hatch).
     function settleFull(uint256 sessionId, uint256 toProvider, uint256 toUser) external {
-        _releaseSessionFunds(sessionId, toProvider, toUser, true);
+        _settle(sessionId, toProvider, toUser, true, true);
     }
 
-    function _releaseSessionFunds(uint256 sessionId, uint256 toProvider, uint256 toUser, bool mustDrain) internal {
+    /// @notice Operator-driven partial settle; bounded so provider receipts never exceed claimed usage (`usageRecorded`).
+    function settleByOperatorPartial(uint256 sessionId, uint256 toProvider, uint256 toUser)
+        external
+        onlySettlementOperator
+    {
+        _settle(sessionId, toProvider, toUser, false, false);
+    }
+
+    /// @notice Operator-driven full settle of remaining lock.
+    function settleByOperatorFull(uint256 sessionId, uint256 toProvider, uint256 toUser)
+        external
+        onlySettlementOperator
+    {
+        _settle(sessionId, toProvider, toUser, true, false);
+    }
+
+    function _settle(uint256 sessionId, uint256 toProvider, uint256 toUser, bool mustDrain, bool requireSessionUser)
+        internal
+    {
         Session storage s = sessions[sessionId];
         if (s.user == address(0)) revert UnknownSession();
-        if (s.user != msg.sender) revert NotSessionUser();
         if (s.settled) revert AlreadySettled();
+        if (requireSessionUser && s.user != msg.sender) revert NotSessionUser();
+
         uint256 out = toProvider + toUser;
         if (mustDrain) {
             if (out != s.lockedInternal) revert BadSettleSplit();
@@ -204,12 +264,24 @@ contract SettlementEscrow {
             revert BadSettleSplit();
         }
 
+        uint256 newPaid = s.paidToProviderInternal + toProvider;
+        if (newPaid > s.usageRecorded) revert BadSettleSplit();
+        s.paidToProviderInternal = newPaid;
+
         s.lockedInternal -= out;
         totalLockedInternal -= out;
-        providerBalances[s.provider] += toProvider;
+        providerBalances[s.nodeId] += toProvider;
         dotBalances[s.user] += toUser;
 
-        if (s.lockedInternal == 0) s.settled = true;
+        if (s.lockedInternal == 0) {
+            s.settled = true;
+            bytes32 nid = s.nodeId;
+            uint256 c = openSessionCountByNode[nid];
+            if (c == 0) revert OpenSessionCounterUnderflow();
+            unchecked {
+                openSessionCountByNode[nid] = c - 1;
+            }
+        }
 
         emit SessionFundsReleased(sessionId, toProvider, toUser, s.lockedInternal);
     }
@@ -218,25 +290,22 @@ contract SettlementEscrow {
         return dotBalances[user];
     }
 
-    /// @notice Polkadot Asset Hub native DOT uses 10 decimals (Planck). Internal balances use 18 decimals per whole DOT.
-    function _nativeDecimals() internal pure returns (uint8) {
-        return 10;
+    function _nativeToInternal(uint256 amountNative) internal view returns (uint256) {
+        uint8 nd = nativeDotDecimals;
+        if (INTERNAL_DOT_DECIMALS == nd) return amountNative;
+        if (INTERNAL_DOT_DECIMALS > nd) {
+            return amountNative * (10 ** (INTERNAL_DOT_DECIMALS - nd));
+        }
+        return amountNative / (10 ** (nd - INTERNAL_DOT_DECIMALS));
     }
 
-    function _nativeToInternal(uint256 amountNative) internal pure returns (uint256) {
-        if (INTERNAL_DOT_DECIMALS == _nativeDecimals()) return amountNative;
-        if (INTERNAL_DOT_DECIMALS > _nativeDecimals()) {
-            return amountNative * (10 ** (INTERNAL_DOT_DECIMALS - _nativeDecimals()));
+    function _internalToNative(uint256 amountInternal) internal view returns (uint256) {
+        uint8 nd = nativeDotDecimals;
+        if (INTERNAL_DOT_DECIMALS == nd) return amountInternal;
+        if (INTERNAL_DOT_DECIMALS > nd) {
+            return amountInternal / (10 ** (INTERNAL_DOT_DECIMALS - nd));
         }
-        return amountNative / (10 ** (_nativeDecimals() - INTERNAL_DOT_DECIMALS));
-    }
-
-    function _internalToNative(uint256 amountInternal) internal pure returns (uint256) {
-        if (INTERNAL_DOT_DECIMALS == _nativeDecimals()) return amountInternal;
-        if (INTERNAL_DOT_DECIMALS > _nativeDecimals()) {
-            return amountInternal / (10 ** (INTERNAL_DOT_DECIMALS - _nativeDecimals()));
-        }
-        return amountInternal * (10 ** (_nativeDecimals() - INTERNAL_DOT_DECIMALS));
+        return amountInternal * (10 ** (nd - INTERNAL_DOT_DECIMALS));
     }
 
     receive() external payable {}

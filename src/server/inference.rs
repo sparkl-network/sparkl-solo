@@ -75,7 +75,11 @@ pub async fn chat_completions(
     let output_price_per_m = state.config.pricing.micro_usd_per_m_output_tokens;
 
     let event_stream = stream! {
-        let session_id = sessions.open(&model, consumer_epk);
+        let session_id = sessions.open(
+            &model,
+            consumer_epk,
+            state.config.node.session_security_tier,
+        );
 
         let identity = match provider_identity() {
             Ok(i) => i,

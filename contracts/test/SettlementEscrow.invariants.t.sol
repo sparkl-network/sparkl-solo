@@ -25,6 +25,10 @@ contract SettlementEscrowInvariantHandler is Test {
     mapping(address => uint256) internal _openedLockSum;
     mapping(address => uint256) internal _paidToProviderSum;
 
+    function _nid(address a) internal pure returns (bytes32) {
+        return bytes32(uint256(uint160(a)));
+    }
+
     constructor(
         SettlementEscrow esc_,
         ProviderRegistry reg_,
@@ -44,14 +48,14 @@ contract SettlementEscrowInvariantHandler is Test {
         provider1 = p1;
 
         vm.prank(p0);
-        reg.registerProvider(payoutAddr, true, true, "");
+        reg.registerNode(_nid(p0), payoutAddr, true, true, "");
         vm.prank(attestation_);
-        reg.setTEEProof(p0, bytes32(uint256(0xA11CE)));
+        reg.setTEEProof(_nid(p0), bytes32(uint256(0xA11CE)));
 
         vm.prank(p1);
-        reg.registerProvider(payoutAddr, true, true, "");
+        reg.registerNode(_nid(p1), payoutAddr, true, true, "");
         vm.prank(attestation_);
-        reg.setTEEProof(p1, bytes32(uint256(0xB22CE)));
+        reg.setTEEProof(_nid(p1), bytes32(uint256(0xB22CE)));
 
         vm.deal(alice_, 1_000_000 ether);
         vm.deal(address(escrow), 1_000_000 ether);
@@ -82,7 +86,7 @@ contract SettlementEscrowInvariantHandler is Test {
 
         _ensureAliceSpendable(lockAmt);
         vm.prank(alice);
-        try escrow.openSession(p, t, lockAmt) {
+        try escrow.openSession(_nid(p), t, lockAmt) {
             _openedLockSum[p] += lockAmt;
         } catch {}
     }
@@ -91,13 +95,13 @@ contract SettlementEscrowInvariantHandler is Test {
         uint256 n = escrow.nextSessionId();
         if (n == 0) return;
         uint256 sid = bound(seed, 0, n - 1);
-        (,,,,,,, bool settled) = escrow.sessions(sid);
+        (,,,,,,,, bool settled) = escrow.sessions(sid);
         if (settled) return;
 
-        (, address providerAddr,,,,,,) = escrow.sessions(sid);
+        (, bytes32 nodeId,,,,,,,) = escrow.sessions(sid);
         usageAmt = bound(usageAmt, 1, (10 ** 18));
 
-        vm.prank(providerAddr);
+        vm.prank(reg.nodeOperator(nodeId));
         try escrow.recordUsage(sid, usageAmt) {} catch {}
     }
 
@@ -105,7 +109,10 @@ contract SettlementEscrowInvariantHandler is Test {
         uint256 n = escrow.nextSessionId();
         if (n == 0) return;
         uint256 sid = seed % n;
-        (address user, address providerAddr,, uint256 locked,,,, bool settled) = escrow.sessions(sid);
+        (
+            address user,
+            bytes32 nodeId,, uint256 locked,,,,, bool settled
+        ) = escrow.sessions(sid);
         if (settled || locked == 0 || user != alice) return;
 
         uint256 mix = uint256(keccak256(abi.encode(seed, a, b)));
@@ -115,7 +122,7 @@ contract SettlementEscrowInvariantHandler is Test {
 
         vm.prank(alice);
         try escrow.settlePartial(sid, toP, toU) {
-            _paidToProviderSum[providerAddr] += toP;
+            _paidToProviderSum[reg.nodeOperator(nodeId)] += toP;
         } catch {}
     }
 
@@ -123,13 +130,16 @@ contract SettlementEscrowInvariantHandler is Test {
         uint256 n = escrow.nextSessionId();
         if (n == 0) return;
         uint256 sid = seed % n;
-        (address user, address p,, uint256 locked,,,, bool settled) = escrow.sessions(sid);
+        (
+            address user,
+            bytes32 nodeId,, uint256 locked,,,,, bool settled
+        ) = escrow.sessions(sid);
         if (settled || locked == 0 || user != alice) return;
 
         uint256 half = locked / 2;
         vm.prank(alice);
         try escrow.settleFull(sid, half, locked - half) {
-            _paidToProviderSum[p] += half;
+            _paidToProviderSum[reg.nodeOperator(nodeId)] += half;
         } catch {}
     }
 
@@ -157,11 +167,12 @@ contract SettlementEscrowInvariantHandler is Test {
 
     function step_withdrawProviders(uint256 pick) external {
         address p = pick % 2 == 0 ? provider0 : provider1;
-        uint256 pb = escrow.providerBalances(p);
+        bytes32 nid = _nid(p);
+        uint256 pb = escrow.providerBalances(nid);
         if (pb == 0) return;
         vm.deal(address(escrow), address(escrow).balance + 1 ether);
         vm.prank(p);
-        try escrow.withdrawProviderDot(pb) {} catch {}
+        try escrow.withdrawProviderDot(nid, pb) {} catch {}
     }
 }
 
@@ -178,6 +189,10 @@ contract SettlementEscrowInvariantTest is StdInvariant, Test {
     address internal p0 = address(0xF100);
     address internal p1 = address(0xF200);
 
+    function _nid(address a) internal pure returns (bytes32) {
+        return bytes32(uint256(uint160(a)));
+    }
+
     function setUp() public {
         vm.prank(owner);
         reg = new ProviderRegistry(owner, attestation);
@@ -186,7 +201,9 @@ contract SettlementEscrowInvariantTest is StdInvariant, Test {
         oracle.set(1_340_000);
 
         usdc = new MockERC20("USDC", 6);
-        esc = new SettlementEscrow(reg, oracle, usdc);
+        esc = new SettlementEscrow(reg, oracle, usdc, 10);
+        vm.prank(owner);
+        reg.setSettlementEscrow(address(esc));
         handler = new SettlementEscrowInvariantHandler(esc, reg, oracle, usdc, alice, p0, p1, attestation);
 
         targetContract(address(handler));
@@ -197,7 +214,7 @@ contract SettlementEscrowInvariantTest is StdInvariant, Test {
 
     function invariant_circulatingMatchesBucketsSingleAlice() external view {
         uint256 buckets = esc.totalLockedInternal() + esc.dotBalances(alice);
-        buckets += esc.providerBalances(handler.provider0()) + esc.providerBalances(handler.provider1());
+        buckets += esc.providerBalances(_nid(p0)) + esc.providerBalances(_nid(p1));
         assertEq(buckets, esc.internalCirculating());
     }
 
