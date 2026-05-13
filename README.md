@@ -88,58 +88,7 @@ Use the `tests-js/` harness for periodic runtime checks against live nodes:
 
 ## Roadmap
 
-Progress is mapped to the multi-phase plan in `docs/Sparkle  Decentralised Private AI Inference for NVIDIA DGX Spark Owners.md`, `docs/Sparkle Tokenomics  SPARKL Token Design and Network Economics.md`, and `docs/TPM-development.md`.
-
-### Phase 1 - Core MVP (mostly complete in this repo)
-
-- [x] OpenAI-compatible node endpoints: `/v1/chat/completions` and `/v1/models`
-- [x] Streaming SSE proxy path with signed chunk receipts
-- [x] Local two-node dev configs and discovery test flow
-- [x] Rust integration tests and JS operational test harness (`tests-js/`)
-- [x] TPM development path validated with `swtpm` workflows and challenge/verify APIs
-
-### Phase 2 - Privacy and decentralization foundations (in progress)
-
-- [x] Encrypted request handling (`epk` + `ciphertext`) in inference path
-- [x] Receipt verification endpoint (`/receipts/verify`) and attestation challenge endpoint (`/attestation/challenge`)
-- [x] Configurable model visibility controls (`include_models` then `exclude_models`)
-- [x] Public `/status` reduced to readiness-only with optional `/status/detail` diagnostics exposure
-- [x] Session accounting now uses real token pricing (`amount_micro_usd`)
-- [x] Settlement epoch batches now compute a receipts root (non-zero placeholder removed)
-- [x] Session completion logs include tokens, receipts, earnings, and duration
-- [x] Unicity integration entry points added (`unicity_request_id`, feature-gated async `submit_commitment`) — legacy path
-- [ ] Live NRAS verification and production attestation certificate flow
-- [ ] Hub EVM–backed registry / escrow integration (`ProviderRegistry`, `SettlementEscrow`, oracles)
-- [ ] Optional: Unicity registry heartbeats/state transitions beyond local stub behavior
-- [ ] On-chain escrow/payment settlement wired to configured `escrow_contract` on Hub EVM
-
-### Phase 3 - P2P network hardening (in progress)
-
-- [x] Real `libp2p` swarm with Identify/Ping/mDNS/Kademlia
-- [x] Persistent peer identity on disk across restarts
-- [x] Protocol-aware peer filtering (`sparkl/*`) for known-peer reporting
-- [x] Recovery test coverage for active sessions after restart
-- [ ] Wider multi-peer interoperability validation beyond current local/test-peer runs
-- [ ] SDK-level trustless discovery and direct consumer P2P flows
-
-### Operations and delivery
-
-- [x] `SETUP.md` production runbook (config + port forwarding)
-- [x] Expanded macOS TPM guidance in `DEVELOPER.md` and `docs/TPM-development.md`
-- [x] `tests-js` Unicity gateway smoke test (`yarn unicity:ping`, legacy JSON-RPC path)
-- [ ] GitHub Actions CI workflow activation (requires token/repo permission for workflow updates)
-
-### TBC
-- Tier-aware routing and pricing alignment with on-chain registry
-- Attestation service ↔ `ProviderRegistry` TEE proof flow
-- Oracle-backed USDC↔DOT in production (DIA / Pyth)
-- Integration with ZKP layer for Double-spend protection
-- Dashboard and UI
-- Substrate solo chain
-- quic-ws support
-  - Per-stream loss recovery — one stalled token doesn't affect other concurrent sessions
-  - 0-RTT resumption — meaningful for short-context requests where connection setup is a significant fraction of latency
-  - Native multiplexing — multiple concurrent streaming sessions over one QUIC connection
+The **MVP roadmap** (goals, gap analysis, prioritized deliverables, dependency graph, risks, and pointers to narrative docs) lives in **[docs/MVP_ROADMAP.md](docs/MVP_ROADMAP.md)**. Long-form product narratives: `docs/Sparkle  Decentralised Private AI Inference for NVIDIA DGX Spark Owners.md`, `docs/Sparkle Tokenomics  SPARKL Token Design and Network Economics.md`, and `docs/TPM-development.md`.
 
 ## How to contribute
 
@@ -149,7 +98,7 @@ Progress is mapped to the multi-phase plan in `docs/Sparkle  Decentralised Priva
    - `cargo test --features mock-tpm`
    - `cargo test --features tpm`
    - `cd tests-js && yarn status && yarn attestation && yarn encrypted && yarn tpm:suite`
-4. Update relevant docs (`DEVELOPER.md`, `docs/TPM-development.md`, and `tests-js/README.md`) when behavior changes.
+4. Update relevant docs (`DEVELOPER.md`, `docs/MVP_ROADMAP.md`, `docs/TPM-development.md`, and `tests-js/README.md`) when behavior changes.
 5. Open a pull request with:
    - a short summary of the change
    - test evidence (command output or screenshots where relevant)

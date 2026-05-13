@@ -1,6 +1,18 @@
 # AGENTS.md
 
+Instructions for humans and coding agents working on **sparkl-solo**. Primary integration target is **Polkadot Hub EVM** (`SettlementEscrow`, `ProviderRegistry`). New work should align with **[docs/MVP_ROADMAP.md](docs/MVP_ROADMAP.md)** (priorities, gap analysis, and dependency order).
+
+## How to contribute
+
+1. **Read** `docs/MVP_ROADMAP.md` for P0/P1 scope and what is already implemented vs stubbed.
+2. **Implement** features or **fix** defects in focused changes; match existing style and keep diffs minimal.
+3. **Verify** with the build and test commands below. **Add or extend test cases** where it helps: Rust integration (`tests/integration_test.rs` and new `tests/*.rs` if appropriate), Solidity (`contracts/test/*.sol`), and/or JS harness (`tests-js/`). New tests are welcome in PRs when they lock in behavior or reproduce a fixed defect.
+4. **Open a pull request** with a short summary, test evidence (e.g. `cargo test` / `forge test` / `yarn …` output), and any follow-ups called out in the roadmap.
+
+For repository conventions and review expectations, see **[README.md — How to contribute](README.md#how-to-contribute)**.
+
 ## Build commands
+
 - `cargo build --features mock-tpm`
 - `cargo build --features mock-tpm,evm-settlement`
 - `cargo test --features mock-tpm`
@@ -8,44 +20,51 @@
 - TEE attestation stub (Node): `cd services/tee-attestation-stub && yarn install && yarn start`
 
 ## Test commands (JS integration suite)
+
 - `cd tests-js && yarn install && yarn tpm:suite`
 
+**Where tests live**
+
+- Rust: `tests/integration_test.rs` (and `cargo test` from repo root)
+- Solidity: `cd contracts && forge test`
+- JS harness: `tests-js/` (see `tests-js/README.md`)
+
 ## Local data directory
-- ./dev-data/<node-name>/network/ - try to preserve libp2p peer identity
-- ./dev-config/<node-name>.toml - config for multiple nodes
+
+- `./dev-data/<node-name>/network/` — preserve libp2p peer identity when possible
+- `./dev-config/<node-name>.toml` — multi-node configs
 
 ## Important constraints
-- NEVER commit identity-secret.json (contains private keys)
-- NEVER commit `services/tee-attestation-stub/.env` (`ADMIN_PRIVATE_KEY`).
-- NEVER change receipt signing without updating tests/integration_test.rs
-- Hub EVM settlement: `src/settlement/evm.rs` behind `--features evm-settlement` (requires provider key + settlement operator key matching on-chain `settlementOperator` when `settlement.enabled`).
-- identity.rs has a #[cfg(feature = "tpm")] gate — always test both features
+
+- **Never** commit `identity-secret.json` (private keys).
+- **Never** commit `services/tee-attestation-stub/.env` (`ADMIN_PRIVATE_KEY`).
+- **Never** change receipt signing without updating `tests/integration_test.rs`.
+- Hub EVM settlement: `src/settlement/evm.rs` behind `--features evm-settlement` (provider key + settlement operator key must match on-chain `settlementOperator` when `settlement.enabled`).
+- `identity.rs` has a `#[cfg(feature = "tpm")]` path — when touching identity, validate `mock-tpm` (and `tpm` if relevant).
 
 ## Architecture map
 
-**Target (on-chain):** Polkadot Hub EVM (`pallet_revive`) — `SettlementEscrow`, `ProviderRegistry`, `IPriceOracle` (see `contracts/`). Tier A = TEE-verified (attestation service writes proof on-chain); Tier B = best-effort.
+**On-chain:** Polkadot Hub EVM — `SettlementEscrow`, `ProviderRegistry`, `IPriceOracle` (see `contracts/`). Tier A = TEE-verified (attestation flow writes proof on-chain); Tier B = best-effort.
 
-**Target (off-chain):** attestation service, aggregators (tier + price routing). **MVP TEE onboarding:** HTTP stub [`services/tee-attestation-stub/README.md`](./services/tee-attestation-stub/README.md) (`GET /v1/challenge`, `POST /v1/attest` → on-chain [`ProviderRegistry.setTEEProof`](./contracts/src/ProviderRegistry.sol)); **`ADMIN_PRIVATE_KEY` must equal `attestationService` on the registry.**
+**Off-chain:** Attestation service and routing/aggregators. **MVP TEE stub:** [`services/tee-attestation-stub/README.md`](./services/tee-attestation-stub/README.md) (`GET /v1/challenge`, `POST /v1/attest` → on-chain [`ProviderRegistry.setTEEProof`](./contracts/src/ProviderRegistry.sol)); stub `ADMIN_PRIVATE_KEY` must match registry `attestationService` when testing that path.
 
-**Legacy / optional:** Unicity JSON-RPC when built with `--features unicity`.
+**Rust layout (high-signal files):**
 
-- src/server/inference.rs — the hot path, touch carefully
-- src/session.rs — session lifecycle, pricing lives here
-- src/receipts.rs — signing/verification, consensus-critical
-- src/receipts.rs unicity_request_id() — derives Unicity commitment ID from receipt (legacy)
-- Unicity JSON-RPC: `registry.unicity_aggregator_url` as POST base URL (`--features unicity`); optional `registry.unicity_api_key` as `X-API-Key`
-- Feature flag: --features unicity (enables async submit_commitment calls)
-- Do NOT await Unicity submission in the inference hot path — fire-and-forget via tokio::spawn
-- src/identity.rs — key management, TPM gate here
-- src/registry.rs — STUB, safe to modify
-- src/settlement/ — epoch batches; optional `SettlementEscrow` txs (`evm-settlement`)
+- `src/server/inference.rs` — inference hot path; change carefully
+- `src/server/mod.rs` — HTTP routes (new handlers registered here)
+- `src/session.rs` — session lifecycle and pricing
+- `src/receipts.rs` — signing and verification (consensus-critical)
+- `src/identity.rs` — key management; TPM-related gates
+- `src/registry.rs` — hub registry client is **stubbed**; safe to replace with real `ProviderRegistry` calls (see roadmap §1.3)
+- `src/settlement/` — epoch loop; `evm.rs` sends escrow txs when `--features evm-settlement`
 
-## When adding a new endpoint
-1. Add handler in src/server/
-2. Register route in src/server/mod.rs
-3. Add a JS test in tests-js/src/
-4. Update tests-js/README.md
+## When adding a new HTTP endpoint
 
-## Do not touch
-- Cargo.lock (let cargo manage)
-- config/default.toml pricing values (used by integration tests)
+1. Add handler under `src/server/`.
+2. Register the route in `src/server/mod.rs`.
+3. Add coverage: Rust integration and/or `tests-js/` for user-facing paths; update `tests-js/README.md` if you add scripts.
+
+## Do not touch (unless explicitly asked)
+
+- `Cargo.lock` — let Cargo update it
+- `config/default.toml` pricing values — relied on by integration tests
