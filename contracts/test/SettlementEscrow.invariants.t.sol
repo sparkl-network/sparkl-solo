@@ -202,6 +202,8 @@ contract SettlementEscrowInvariantTest is StdInvariant, Test {
 
         usdc = new MockERC20("USDC", 6);
         esc = new SettlementEscrow(reg, oracle, usdc, 10);
+        vm.prank(owner);
+        reg.setSettlementEscrow(address(esc));
         handler = new SettlementEscrowInvariantHandler(esc, reg, oracle, usdc, alice, p0, p1, attestation);
 
         targetContract(address(handler));

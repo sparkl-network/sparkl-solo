@@ -3,7 +3,20 @@ pragma solidity ^0.8.20;
 
 import {Test} from "forge-std/Test.sol";
 import {ProviderRegistry} from "../src/ProviderRegistry.sol";
-import {SecurityTier, NodeInfo} from "../src/SecurityTypes.sol";
+import {SecurityTier, NodeInfo, NodeLifecycle} from "../src/SecurityTypes.sol";
+
+/// @dev Implements `openSessionCountByNode` for registry `markDefunct` tests.
+contract MockEscrowOpenCounts {
+    mapping(bytes32 => uint256) internal _counts;
+
+    function openSessionCountByNode(bytes32 nodeId) external view returns (uint256) {
+        return _counts[nodeId];
+    }
+
+    function setOpenCount(bytes32 nodeId, uint256 v) external {
+        _counts[nodeId] = v;
+    }
+}
 
 contract ProviderRegistryTest is Test {
     ProviderRegistry internal reg;
@@ -43,6 +56,7 @@ contract ProviderRegistryTest is Test {
         assertEq(n.teeReportHash, bytes32(0));
         assertEq(keccak256(bytes(n.metadataURI)), keccak256(bytes("ipfs://meta")));
         assertEq(keccak256(bytes(reg.getMetadataURI(nodeId))), keccak256(bytes("ipfs://meta")));
+        assertEq(uint8(reg.getProvider(nodeId).lifecycle), uint8(NodeLifecycle.Active));
 
         vm.prank(operator);
         reg.setNodePricing(nodeId, SecurityTier.BEST_EFFORT, 123);
@@ -180,13 +194,73 @@ contract ProviderRegistryTest is Test {
         vm.stopPrank();
     }
 
-    function test_deregisterNode_clears_state_and_operator_list() public {
+    function test_supportsTier_false_when_chilled() public {
+        bytes32 nodeId = _nid(nodeAddr);
+        vm.prank(operator);
+        reg.registerNode(nodeId, payout, true, false, "");
+        assertTrue(reg.supportsTier(nodeId, SecurityTier.BEST_EFFORT));
+
+        vm.prank(operator);
+        reg.chillNode(nodeId);
+        assertFalse(reg.supportsTier(nodeId, SecurityTier.BEST_EFFORT));
+        assertEq(uint8(reg.getProvider(nodeId).lifecycle), uint8(NodeLifecycle.Chilled));
+        assertFalse(reg.getProvider(nodeId).active);
+    }
+
+    function test_chillNode_revert_notActive() public {
+        bytes32 nodeId = _nid(nodeAddr);
+        vm.startPrank(operator);
+        reg.registerNode(nodeId, payout, true, false, "");
+        reg.chillNode(nodeId);
+        vm.expectRevert(ProviderRegistry.InvalidLifecycle.selector);
+        reg.chillNode(nodeId);
+        vm.stopPrank();
+    }
+
+    function test_markDefunct_revert_escrow_not_configured() public {
+        bytes32 nodeId = _nid(nodeAddr);
+        vm.startPrank(operator);
+        reg.registerNode(nodeId, payout, true, false, "");
+        reg.chillNode(nodeId);
+        vm.expectRevert(ProviderRegistry.EscrowNotConfigured.selector);
+        reg.markDefunct(nodeId);
+        vm.stopPrank();
+    }
+
+    function test_markDefunct_revert_open_sessions_remain() public {
+        MockEscrowOpenCounts mockEsc = new MockEscrowOpenCounts();
+        vm.prank(owner);
+        reg.setSettlementEscrow(address(mockEsc));
+
+        bytes32 nodeId = _nid(nodeAddr);
+        vm.startPrank(operator);
+        reg.registerNode(nodeId, payout, true, false, "");
+        reg.chillNode(nodeId);
+        mockEsc.setOpenCount(nodeId, 1);
+        vm.expectRevert(ProviderRegistry.OpenSessionsRemain.selector);
+        reg.markDefunct(nodeId);
+        vm.stopPrank();
+    }
+
+    function test_markDefunct_ok_then_purge_allows_reregister() public {
+        MockEscrowOpenCounts mockEsc = new MockEscrowOpenCounts();
+        vm.prank(owner);
+        reg.setSettlementEscrow(address(mockEsc));
+
         bytes32 nodeId = _nid(nodeAddr);
         vm.startPrank(operator);
         reg.registerNode(nodeId, payout, true, false, "");
         reg.setNodePricing(nodeId, SecurityTier.BEST_EFFORT, 99);
-        reg.deregisterNode(nodeId);
+        reg.chillNode(nodeId);
+        mockEsc.setOpenCount(nodeId, 0);
+        reg.markDefunct(nodeId);
         vm.stopPrank();
+
+        assertEq(uint8(reg.getProvider(nodeId).lifecycle), uint8(NodeLifecycle.Defunct));
+        assertEq(reg.nodeOperator(nodeId), operator);
+
+        vm.prank(owner);
+        reg.purgeDefunctNode(nodeId);
 
         assertEq(reg.nodeOperator(nodeId), address(0));
         assertEq(reg.getPricePer1k(nodeId, SecurityTier.BEST_EFFORT), 0);
@@ -199,14 +273,21 @@ contract ProviderRegistryTest is Test {
         assertEq(reg.nodeOperator(nodeId), operator);
     }
 
-    function test_deregisterNode_revert_notOperator() public {
-        bytes32 nodeId = _nid(nodeAddr);
-        vm.prank(operator);
-        reg.registerNode(nodeId, payout, true, false, "");
+    function test_purgeDefunctNode_revert_notOwner() public {
+        MockEscrowOpenCounts mockEsc = new MockEscrowOpenCounts();
+        vm.prank(owner);
+        reg.setSettlementEscrow(address(mockEsc));
 
-        vm.prank(address(0xBAD));
-        vm.expectRevert(ProviderRegistry.NotNodeOperator.selector);
-        reg.deregisterNode(nodeId);
+        bytes32 nodeId = _nid(nodeAddr);
+        vm.startPrank(operator);
+        reg.registerNode(nodeId, payout, true, false, "");
+        reg.chillNode(nodeId);
+        reg.markDefunct(nodeId);
+        vm.stopPrank();
+
+        vm.prank(operator);
+        vm.expectRevert(ProviderRegistry.NotOwner.selector);
+        reg.purgeDefunctNode(nodeId);
     }
 
     function test_transferOwnership_and_attestationService() public {

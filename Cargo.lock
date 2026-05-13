@@ -5299,6 +5299,7 @@ name = "sparkl-solo"
 version = "0.1.0"
 dependencies = [
  "alloy",
+ "alloy-primitives",
  "anyhow",
  "async-stream",
  "axum",

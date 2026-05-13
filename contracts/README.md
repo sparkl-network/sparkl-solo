@@ -47,6 +47,10 @@ After changing contracts, copy the built artifacts so **off-chain consumers stay
 
 - **`sparkl-portal`:** copy the same JSON files into `sparkl-portal/lib/abi/` (or your sibling checkout) so the Next app and `sparkl-solo` never drift.
 
+### Node rundown (operator flow)
+
+Nodes use on-chain **`NodeLifecycle`**: **Active** → **`chillNode`** (operator, may run with open escrow sessions) → **Chilled** → **`markDefunct`** (operator, only when escrow **`openSessionCountByNode(nodeId)`** is zero) → **Defunct**. The registry owner may call **`purgeDefunctNode`** later to clear storage so the same **`nodeId`** can be registered again. **`deregisterNode`** is removed — integrators should use chill / mark defunct instead.
+
 ## Tests
 
 Run the full suite:

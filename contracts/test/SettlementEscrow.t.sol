@@ -6,7 +6,7 @@ import {ProviderRegistry} from "../src/ProviderRegistry.sol";
 import {SettlementEscrow} from "../src/SettlementEscrow.sol";
 import {MockOracle} from "../src/mocks/MockOracle.sol";
 import {MockERC20} from "../src/mocks/MockERC20.sol";
-import {SecurityTier, NodeInfo} from "../src/SecurityTypes.sol";
+import {SecurityTier, NodeInfo, NodeLifecycle} from "../src/SecurityTypes.sol";
 
 contract SettlementEscrowTest is Test {
     ProviderRegistry internal reg;
@@ -41,6 +41,9 @@ contract SettlementEscrowTest is Test {
         usdc = new MockERC20("USDC", 6);
 
         esc = new SettlementEscrow(reg, oracle, usdc, 10);
+
+        vm.prank(owner);
+        reg.setSettlementEscrow(address(esc));
 
         vm.prank(providerA);
         reg.registerNode(_nid(providerA), payout, true, true, "");
@@ -236,6 +239,70 @@ contract SettlementEscrowTest is Test {
         assertEq(esc.dotBalances(alice), 5 * 10 ** 18 - amountInternal);
         assertEq(esc.totalLockedInternal(), amountInternal);
         assertEq(esc.internalCirculating(), circBefore);
+    }
+
+    function test_openSessionCount_increments_once_per_open_and_decrements_on_final_settle() public {
+        bytes32 nid = _nid(providerA);
+        assertEq(esc.openSessionCountByNode(nid), 0);
+
+        uint256 lockAmt = 5 * 10 ** 18;
+        vm.prank(alice);
+        esc.depositDot{value: 5 * 10 ** 10}();
+        vm.prank(alice);
+        esc.openSession(nid, SecurityTier.TEE_VERIFIED, lockAmt);
+        assertEq(esc.openSessionCountByNode(nid), 1);
+
+        vm.prank(providerA);
+        esc.recordUsage(0, lockAmt);
+        vm.prank(alice);
+        esc.settlePartial(0, 2 * 10 ** 18, 10 ** 18);
+        assertEq(esc.openSessionCountByNode(nid), 1);
+        vm.prank(alice);
+        esc.settleFull(0, 10 ** 18, 10 ** 18);
+        assertEq(esc.openSessionCountByNode(nid), 0);
+    }
+
+    function test_openSession_reverts_when_node_chilled_in_registry() public {
+        uint256 amt = 10 ** 18;
+        vm.prank(alice);
+        esc.depositDot{value: 10 * (10 ** 10)}();
+        vm.prank(providerA);
+        reg.chillNode(_nid(providerA));
+        vm.prank(alice);
+        vm.expectRevert(SettlementEscrow.UnsupportedTier.selector);
+        esc.openSession(_nid(providerA), SecurityTier.TEE_VERIFIED, amt);
+    }
+
+    function test_markDefunct_reverts_while_open_session_counter_positive() public {
+        bytes32 nid = _nid(providerA);
+        vm.prank(alice);
+        esc.depositDot{value: 10 * (10 ** 10)}();
+        vm.prank(alice);
+        esc.openSession(nid, SecurityTier.TEE_VERIFIED, 10 ** 18);
+        vm.prank(providerA);
+        reg.chillNode(nid);
+        vm.prank(providerA);
+        vm.expectRevert(ProviderRegistry.OpenSessionsRemain.selector);
+        reg.markDefunct(nid);
+    }
+
+    function test_markDefunct_ok_after_session_settled() public {
+        bytes32 nid = _nid(providerA);
+        uint256 lockAmt = 10 ** 18;
+        vm.prank(alice);
+        esc.depositDot{value: 10 * (10 ** 10)}();
+        vm.prank(alice);
+        esc.openSession(nid, SecurityTier.TEE_VERIFIED, lockAmt);
+        vm.prank(providerA);
+        esc.recordUsage(0, lockAmt);
+        vm.prank(providerA);
+        reg.chillNode(nid);
+        vm.prank(alice);
+        esc.settleFull(0, lockAmt, 0);
+        assertEq(esc.openSessionCountByNode(nid), 0);
+        vm.prank(providerA);
+        reg.markDefunct(nid);
+        assertEq(uint8(reg.getProvider(nid).lifecycle), uint8(NodeLifecycle.Defunct));
     }
 
     function test_openSession_payable_native() public {

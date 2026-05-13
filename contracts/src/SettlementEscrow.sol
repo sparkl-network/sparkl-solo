@@ -49,6 +49,8 @@ contract SettlementEscrow {
     }
 
     uint256 public nextSessionId;
+    /// @notice Non-settled sessions per `nodeId`; decremented exactly once when `settled` becomes true.
+    mapping(bytes32 nodeId => uint256) public openSessionCountByNode;
     mapping(uint256 => Session) public sessions;
 
     event DotDeposited(address indexed user, uint256 amountNative, uint256 creditedInternal);
@@ -82,6 +84,7 @@ contract SettlementEscrow {
     error Slippage();
     error NotSettlementOperator();
     error NotRegistryOwner();
+    error OpenSessionCounterUnderflow();
 
     modifier onlySettlementOperator() {
         if (msg.sender != settlementOperator) revert NotSettlementOperator();
@@ -195,6 +198,7 @@ contract SettlementEscrow {
         });
 
         totalLockedInternal += amountInternal;
+        openSessionCountByNode[nodeId] += 1;
 
         if (msg.value == 0) {
             if (dotBalances[msg.sender] < amountInternal) revert InsufficientBalance();
@@ -269,7 +273,15 @@ contract SettlementEscrow {
         providerBalances[s.nodeId] += toProvider;
         dotBalances[s.user] += toUser;
 
-        if (s.lockedInternal == 0) s.settled = true;
+        if (s.lockedInternal == 0) {
+            s.settled = true;
+            bytes32 nid = s.nodeId;
+            uint256 c = openSessionCountByNode[nid];
+            if (c == 0) revert OpenSessionCounterUnderflow();
+            unchecked {
+                openSessionCountByNode[nid] = c - 1;
+            }
+        }
 
         emit SessionFundsReleased(sessionId, toProvider, toUser, s.lockedInternal);
     }

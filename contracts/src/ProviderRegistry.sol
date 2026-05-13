@@ -1,14 +1,17 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {SecurityTier, NodeInfo} from "./SecurityTypes.sol";
+import {SecurityTier, NodeInfo, NodeLifecycle} from "./SecurityTypes.sol";
 import {IProviderRegistry} from "./interfaces/IProviderRegistry.sol";
+import {ISettlementEscrowOpenSessions} from "./interfaces/ISettlementEscrowOpenSessions.sol";
 
 /// @title ProviderRegistry
 /// @notice Registry of provider nodes: `nodeId` is a stable identity (e.g. Substrate PeerId hash); `msg.sender` registers as the operator.
 contract ProviderRegistry is IProviderRegistry {
     address public owner;
     address public attestationService;
+    /// @notice Escrow reporting open session counts per node; set by owner after deploy.
+    address public settlementEscrow;
 
     mapping(bytes32 nodeId => NodeInfo) public nodes;
     mapping(bytes32 nodeId => address operator) public nodeOperator;
@@ -17,6 +20,7 @@ contract ProviderRegistry is IProviderRegistry {
 
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
     event AttestationServiceUpdated(address indexed previous, address indexed next);
+    event SettlementEscrowUpdated(address indexed previous, address indexed next);
     event NodeRegistered(bytes32 indexed nodeId, address indexed operator, string metadataURI);
     event NodePayoutUpdated(bytes32 indexed nodeId, address payout);
     event NodeActiveUpdated(bytes32 indexed nodeId, bool active);
@@ -24,7 +28,9 @@ contract ProviderRegistry is IProviderRegistry {
     event NodeMetadataUpdated(bytes32 indexed nodeId, string metadataURI);
     event TEEProofSet(bytes32 indexed nodeId, bytes32 teeReportHash);
     event PricingUpdated(bytes32 indexed nodeId, SecurityTier tier, uint256 pricePer1kTokens);
-    event NodeDeregistered(bytes32 indexed nodeId, address indexed operator);
+    event NodeChilled(bytes32 indexed nodeId, address indexed operator);
+    event NodeMarkedDefunct(bytes32 indexed nodeId, address indexed operator);
+    event NodePurged(bytes32 indexed nodeId, address indexed operator);
 
     error NotOwner();
     error NotAttestationService();
@@ -34,6 +40,9 @@ contract ProviderRegistry is IProviderRegistry {
     error NodeNotRegistered();
     error NodeAlreadyRegistered();
     error InvalidTEEProof();
+    error InvalidLifecycle();
+    error EscrowNotConfigured();
+    error OpenSessionsRemain();
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert NotOwner();
@@ -67,6 +76,12 @@ contract ProviderRegistry is IProviderRegistry {
         attestationService = next;
     }
 
+    /// @notice Wire the settlement escrow used for `openSessionCountByNode` reads (e.g. after both contracts are deployed).
+    function setSettlementEscrow(address escrow) external onlyOwner {
+        emit SettlementEscrowUpdated(settlementEscrow, escrow);
+        settlementEscrow = escrow;
+    }
+
     /// @notice Register a node identity; caller becomes the operator. `payout == address(0)` defaults to `msg.sender`.
     function registerNode(
         bytes32 nodeId,
@@ -87,21 +102,48 @@ contract ProviderRegistry is IProviderRegistry {
             supportsBestEffort: supportsBestEffort,
             supportsTEE: supportsTEE,
             teeReportHash: bytes32(0),
-            metadataURI: metadataURI
+            metadataURI: metadataURI,
+            lifecycle: NodeLifecycle.Active
         });
 
         emit NodeRegistered(nodeId, msg.sender, metadataURI);
     }
 
-    /// @notice Permanently remove this node from the registry. The same `nodeId` may be registered again later (e.g. new operator).
-    function deregisterNode(bytes32 nodeId) external onlyNodeOperator(nodeId) {
-        address op = msg.sender;
+    /// @notice Active → Chilled: stops new sessions (`supportsTier`). Existing escrow sessions may still settle.
+    function chillNode(bytes32 nodeId) external onlyNodeOperator(nodeId) {
+        if (nodeOperator[nodeId] == address(0)) revert NodeNotRegistered();
+        NodeInfo storage n = nodes[nodeId];
+        if (n.lifecycle != NodeLifecycle.Active) revert InvalidLifecycle();
+        n.lifecycle = NodeLifecycle.Chilled;
+        n.active = false;
+        emit NodeChilled(nodeId, msg.sender);
+        emit NodeActiveUpdated(nodeId, false);
+    }
+
+    /// @notice Chilled → Defunct: requires zero open sessions in the configured escrow.
+    function markDefunct(bytes32 nodeId) external onlyNodeOperator(nodeId) {
+        if (nodeOperator[nodeId] == address(0)) revert NodeNotRegistered();
+        NodeInfo storage n = nodes[nodeId];
+        if (n.lifecycle != NodeLifecycle.Chilled) revert InvalidLifecycle();
+        address esc = settlementEscrow;
+        if (esc == address(0)) revert EscrowNotConfigured();
+        if (ISettlementEscrowOpenSessions(esc).openSessionCountByNode(nodeId) != 0) revert OpenSessionsRemain();
+        n.lifecycle = NodeLifecycle.Defunct;
+        emit NodeMarkedDefunct(nodeId, msg.sender);
+    }
+
+    /// @notice Owner-only: removes a defunct node's storage so `nodeId` may be registered again.
+    function purgeDefunctNode(bytes32 nodeId) external onlyOwner {
+        if (nodeOperator[nodeId] == address(0)) revert NodeNotRegistered();
+        NodeInfo storage n = nodes[nodeId];
+        if (n.lifecycle != NodeLifecycle.Defunct) revert InvalidLifecycle();
+        address op = nodeOperator[nodeId];
         _removeOperatorNode(op, nodeId);
         _pricePer1k[nodeId][SecurityTier.BEST_EFFORT] = 0;
         _pricePer1k[nodeId][SecurityTier.TEE_VERIFIED] = 0;
         delete nodes[nodeId];
         nodeOperator[nodeId] = address(0);
-        emit NodeDeregistered(nodeId, op);
+        emit NodePurged(nodeId, op);
     }
 
     function _removeOperatorNode(address operator, bytes32 nodeId) internal {
@@ -176,6 +218,7 @@ contract ProviderRegistry is IProviderRegistry {
     /// @notice Used by escrow and off-chain aggregators to enforce tier eligibility.
     function supportsTier(bytes32 nodeId, SecurityTier tier) external view returns (bool) {
         NodeInfo memory n = nodes[nodeId];
+        if (n.lifecycle != NodeLifecycle.Active) return false;
         if (!n.active || n.payout == address(0)) return false;
         if (tier == SecurityTier.BEST_EFFORT) return n.supportsBestEffort;
         return n.supportsTEE && n.teeReportHash != bytes32(0);
