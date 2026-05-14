@@ -197,11 +197,6 @@ pub fn attestation_cert_type() -> Result<&'static str> {
     })
 }
 
-#[cfg(feature = "unicity")]
-pub(crate) fn ed25519_secret_bytes() -> Result<[u8; 32]> {
-    Ok(require_loaded()?.ed25519_secret)
-}
-
 fn require_loaded() -> Result<LoadedIdentity> {
     let cell = IDENTITY
         .get()

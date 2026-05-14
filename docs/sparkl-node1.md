@@ -171,9 +171,10 @@ pub struct AttestationConfig {
 }
 
 pub struct RegistryConfig {
-    pub unicity_aggregator_url: String,  // legacy: Unicity JSON-RPC when enabled
-    pub heartbeat_secs:         u64,     // 30
-    pub enabled:                bool,    // false in dev/local mode
+    pub registry_contract_address: String, // ProviderRegistry on Hub EVM (0x…)
+    pub evm_rpc_url:               String, // optional; empty = settlement.evm_rpc_url
+    pub heartbeat_secs:            u64,    // 30
+    pub enabled:                   bool,   // false in dev/local mode
 }
 
 pub struct SettlementConfig {
@@ -215,9 +216,10 @@ nras_enabled = false     # set true on DGX with real TPM
 cert_ttl_days = 7
 
 [registry]
-unicity_aggregator_url = "https://aggregator.unicity.network"
-heartbeat_secs         = 30
-enabled                = false   # set true for network participation
+registry_contract_address = "0x0000000000000000000000000000000000000000"
+evm_rpc_url               = ""
+heartbeat_secs            = 30
+enabled                   = false   # set true when registry client is implemented
 
 [settlement]
 epoch_secs      = 600

@@ -30,8 +30,8 @@ nras_enabled = false
 cert_ttl_days = 7
 
 [registry]
-unicity_aggregator_url = "http://192.168.10.164:3000/"
-unicity_api_key = ""
+registry_contract_address = "0x0000000000000000000000000000000000000000"
+evm_rpc_url = ""
 heartbeat_secs = 30
 enabled = false
 

@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use tokio::time::sleep;
 use tracing::{info, warn};
 
-use crate::config::RegistryConfig;
+use crate::config::{RegistryConfig, SettlementConfig};
 use crate::identity::NodeIdentity;
 use crate::proxy::BackendProxy;
 
@@ -54,12 +54,23 @@ pub async fn register(
 pub async fn run_heartbeat_loop(
     identity: Arc<NodeIdentity>,
     proxy: Arc<BackendProxy>,
-    config: RegistryConfig,
+    registry_cfg: RegistryConfig,
+    settlement_cfg: SettlementConfig,
 ) {
-    if !config.enabled {
+    if !registry_cfg.enabled {
         warn!("registry heartbeat disabled");
         return;
     }
+
+    let rpc_url = registry_cfg.effective_evm_rpc_url(&settlement_cfg);
+    info!(
+        peer_id = %identity.peer_id,
+        provider_registry = %registry_cfg.registry_contract_address,
+        evm_rpc_effective = %rpc_url,
+        operator_evm_key_configured = %!settlement_cfg.evm_provider_wallet_private_key.trim().is_empty(),
+        "registry heartbeat loop (stub — no on-chain calls yet)"
+    );
+
     loop {
         let models = proxy
             .list_models()
@@ -69,6 +80,6 @@ pub async fn run_heartbeat_loop(
             .map(|m| m.id)
             .collect::<Vec<_>>();
         info!(peer_id = %identity.peer_id, ?models, "registry heartbeat tick");
-        sleep(Duration::from_secs(config.heartbeat_secs.max(1))).await;
+        sleep(Duration::from_secs(registry_cfg.heartbeat_secs.max(1))).await;
     }
 }

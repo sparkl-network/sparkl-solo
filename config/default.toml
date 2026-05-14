@@ -42,8 +42,10 @@ nras_enabled = false
 cert_ttl_days = 7
 
 [registry]
-unicity_aggregator_url = "https://aggregator.unicity.network/"
-unicity_api_key = ""
+# Hub EVM ProviderRegistry (replace with deployed address).
+registry_contract_address = "0x0000000000000000000000000000000000000000"
+# Optional: JSON-RPC URL for registry only. Empty = use settlement.evm_rpc_url.
+evm_rpc_url = ""
 heartbeat_secs = 30
 enabled = false
 

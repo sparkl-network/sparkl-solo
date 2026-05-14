@@ -140,41 +140,6 @@ pub async fn chat_completions(
                                     }
                                 };
                                 sessions.add_receipt(session_id, receipt.clone());
-                                #[cfg(feature = "unicity")]
-                                {
-                                    let receipt_for_anchor = receipt.clone();
-                                    let sessions_for_anchor = sessions.clone();
-                                    let unicity_gateway_url =
-                                        state.config.registry.unicity_aggregator_url.clone();
-                                    let unicity_api_key = state.config.registry.unicity_api_key.clone();
-                                    tokio::spawn(async move {
-                                        let api_key_opt = if unicity_api_key.trim().is_empty() {
-                                            None
-                                        } else {
-                                            Some(unicity_api_key.as_str())
-                                        };
-                                        match crate::receipts::submit_commitment(
-                                            &receipt_for_anchor,
-                                            &unicity_gateway_url,
-                                            api_key_opt,
-                                        )
-                                        .await
-                                        {
-                                            Ok(proof) => {
-                                                if let Err(err) = sessions_for_anchor.save_unicity_proof(
-                                                    receipt_for_anchor.session_id,
-                                                    receipt_for_anchor.seq,
-                                                    &proof,
-                                                ) {
-                                                    warn!(%err, "failed to persist unicity inclusion proof");
-                                                }
-                                            }
-                                            Err(err) => {
-                                                warn!(%err, "unicity submit_commitment failed");
-                                            }
-                                        }
-                                    });
-                                }
                                 chunk["sparkl"] = json!({
                                     "seq": receipt.seq,
                                     "receipt": encode_receipt_for_sse(&receipt),

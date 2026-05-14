@@ -62,12 +62,7 @@ You can override config with either CLI flags or environment variables.
 - **Arrays via env vars:** use JSON array strings
   - example: `SPARKLE__NETWORK__PUBLIC_ADDR='["/ip4/1.2.3.4/tcp/30333"]'`
 
-Unicity anchoring (`--features unicity`) is **legacy / optional**: it uses `registry.unicity_aggregator_url` as the JSON-RPC base URL. Override with `SPARKLE__REGISTRY__UNICITY_AGGREGATOR_URL` (and optional `SPARKLE__REGISTRY__UNICITY_API_KEY`). **Primary settlement direction:** Polkadot Hub EVM — set `settlement.evm_rpc_url` and `settlement.escrow_contract` to your Hub deployment.
-
-```bash
-SPARKLE__REGISTRY__UNICITY_AGGREGATOR_URL=https://goggregator-test.unicity.network/ \
-  cargo run --features unicity
-```
+**Hub registry (`[registry]`):** `registry_contract_address` is the **`ProviderRegistry`** on Polkadot Hub EVM. Optional `registry.evm_rpc_url` overrides **`settlement.evm_rpc_url`** for registry RPC only; leave empty to use the same RPC as escrow. Operator-signed registry and escrow calls both use **`settlement.evm_provider_wallet_private_key`** (must match **`nodeOperator(nodeId)`** on-chain). The `registry` Rust client in **`src/registry.rs`** is still a stub — on-chain registration/heartbeat is not wired yet.
 
 Common CLI examples:
 

@@ -40,6 +40,7 @@ For repository conventions and review expectations, see **[README.md — How to 
 - **Never** commit `services/tee-attestation-stub/.env` (`ADMIN_PRIVATE_KEY`).
 - **Never** change receipt signing without updating `tests/integration_test.rs`.
 - Hub EVM settlement: `src/settlement/evm.rs` behind `--features evm-settlement` (provider key + settlement operator key must match on-chain `settlementOperator` when `settlement.enabled`).
+- Hub EVM registry (`[registry]`): **`registry_contract_address`** and optional **`evm_rpc_url`** (empty = use **`settlement.evm_rpc_url`**). Operator signing uses **`settlement.evm_provider_wallet_private_key`** for both registry and escrow provider calls.
 - `identity.rs` has a `#[cfg(feature = "tpm")]` path — when touching identity, validate `mock-tpm` (and `tpm` if relevant).
 
 ## Architecture map
@@ -57,7 +58,7 @@ For repository conventions and review expectations, see **[README.md — How to 
 - `src/session.rs` — session lifecycle and pricing
 - `src/receipts.rs` — signing and verification (consensus-critical)
 - `src/identity.rs` — key management; TPM-related gates
-- `src/registry.rs` — hub registry client is **stubbed**; safe to replace with real `ProviderRegistry` calls (see roadmap §1.3)
+- `src/registry.rs` — hub registry client is **stubbed**; safe to extend with real `ProviderRegistry` calls (see roadmap §1.3)
 - `src/settlement/` — epoch loop; `evm.rs` sends escrow txs when `--features evm-settlement`
 
 ## When adding a new HTTP endpoint

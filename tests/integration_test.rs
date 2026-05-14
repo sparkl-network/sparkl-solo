@@ -95,8 +95,9 @@ fn test_config(backend_addr: SocketAddr, temp_dir: &TempDir) -> Config {
             cert_ttl_days: 7,
         },
         registry: RegistryConfig {
-            unicity_aggregator_url: "https://example.com".to_string(),
-            unicity_api_key: String::new(),
+            registry_contract_address: "0x0000000000000000000000000000000000000000"
+                .to_string(),
+            evm_rpc_url: String::new(),
             heartbeat_secs: 30,
             enabled: false,
         },
@@ -567,7 +568,8 @@ nras_enabled = false
 cert_ttl_days = 7
 
 [registry]
-unicity_aggregator_url = "https://example.com"
+registry_contract_address = "0x0000000000000000000000000000000000000000"
+evm_rpc_url = ""
 heartbeat_secs = 30
 enabled = false
 
@@ -618,7 +620,8 @@ nras_enabled = false
 cert_ttl_days = 7
 
 [registry]
-unicity_aggregator_url = "https://example.com"
+registry_contract_address = "0x0000000000000000000000000000000000000000"
+evm_rpc_url = ""
 heartbeat_secs = 30
 enabled = false
 

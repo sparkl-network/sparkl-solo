@@ -44,8 +44,6 @@ mock-tpm = []
 # Enables TPM-backed entropy path (`tpm2_getrandom`) in `identity.rs`.
 # Requires TPM tooling/runtime (e.g. `swtpm` + `tpm2-tools` or hardware `/dev/tpm0`).
 tpm = []
-# Enables async receipt anchoring to Unicity testnet gateway.
-unicity = []
 evm-settlement = ["dep:alloy"]
 
 [dev-dependencies]

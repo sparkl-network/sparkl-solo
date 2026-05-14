@@ -51,8 +51,9 @@ async fn main() -> Result<()> {
         let identity_arc = Arc::new(identity.clone());
         let proxy_arc = proxy.clone();
         let registry_cfg = cfg.registry.clone();
+        let settlement_cfg = cfg.settlement.clone();
         tokio::spawn(async move {
-            registry::run_heartbeat_loop(identity_arc, proxy_arc, registry_cfg).await;
+            registry::run_heartbeat_loop(identity_arc, proxy_arc, registry_cfg, settlement_cfg).await;
         });
     }
 
@@ -106,10 +107,10 @@ struct CliArgs {
     nras_url: Option<String>,
     nras_enabled: Option<bool>,
     cert_ttl_days: Option<u64>,
-    registry_url: Option<String>,
+    registry_contract: Option<String>,
+    registry_evm_rpc_url: Option<String>,
     registry_heartbeat_secs: Option<u64>,
     registry_enabled: Option<bool>,
-    unicity_api_key: Option<String>,
     settlement_epoch_secs: Option<u64>,
     evm_rpc_url: Option<String>,
     escrow_contract: Option<String>,
@@ -145,10 +146,10 @@ where
         nras_url: None,
         nras_enabled: None,
         cert_ttl_days: None,
-        registry_url: None,
+        registry_contract: None,
+        registry_evm_rpc_url: None,
         registry_heartbeat_secs: None,
         registry_enabled: None,
-        unicity_api_key: None,
         settlement_epoch_secs: None,
         evm_rpc_url: None,
         escrow_contract: None,
@@ -230,8 +231,12 @@ where
             "--cert-ttl-days" => {
                 out.cert_ttl_days = Some(parse_u64_flag(&mut args, "--cert-ttl-days")?)
             }
-            "--registry-url" => {
-                out.registry_url = Some(required_value(&mut args, "--registry-url")?)
+            "--registry-contract" => {
+                out.registry_contract = Some(required_value(&mut args, "--registry-contract")?)
+            }
+            "--registry-evm-rpc-url" => {
+                out.registry_evm_rpc_url =
+                    Some(required_value(&mut args, "--registry-evm-rpc-url")?)
             }
             "--registry-heartbeat-secs" => {
                 out.registry_heartbeat_secs =
@@ -239,9 +244,6 @@ where
             }
             "--registry-enabled" => {
                 out.registry_enabled = Some(parse_bool_flag(&mut args, "--registry-enabled")?)
-            }
-            "--unicity-api-key" => {
-                out.unicity_api_key = Some(required_value(&mut args, "--unicity-api-key")?)
             }
             "--settlement-epoch-secs" => {
                 out.settlement_epoch_secs =
@@ -384,17 +386,17 @@ fn apply_cli_overrides(cfg: &mut config::Config, cli: &CliArgs) -> Result<()> {
     if let Some(v) = cli.cert_ttl_days {
         cfg.attestation.cert_ttl_days = v;
     }
-    if let Some(v) = &cli.registry_url {
-        cfg.registry.unicity_aggregator_url = v.clone();
+    if let Some(v) = &cli.registry_contract {
+        cfg.registry.registry_contract_address = v.clone();
+    }
+    if let Some(v) = &cli.registry_evm_rpc_url {
+        cfg.registry.evm_rpc_url = v.clone();
     }
     if let Some(v) = cli.registry_heartbeat_secs {
         cfg.registry.heartbeat_secs = v;
     }
     if let Some(v) = cli.registry_enabled {
         cfg.registry.enabled = v;
-    }
-    if let Some(v) = &cli.unicity_api_key {
-        cfg.registry.unicity_api_key = v.clone();
     }
     if let Some(v) = cli.settlement_epoch_secs {
         cfg.settlement.epoch_secs = v;

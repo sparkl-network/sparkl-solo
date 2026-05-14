@@ -54,13 +54,13 @@ Build a **working, self-contained sparkl-solo provider node** that can:
 | Price Oracle (DIAPriceOracle) | DONE | DOT/USD + USDC/USD feed → USDC/DOT conversion |
 | Price Oracle (Pyth) | PLACEHOLDER | Reverts with `NotImplemented()` |
 | EVM settlement (Rust) | PARTIAL | `settlement/evm.rs` (feature `evm-settlement`): `recordUsage`, operator `settleByOperatorFull` / `settleByOperatorPartial`, read `ProviderRegistry.nodeOperator`, session state; **no** deposit/withdraw in Rust; **`Session.evm_session_id` never set** → settlement path skips all sessions today |
-| Registry (Rust) | STUB | `src/registry.rs` — Unicity-oriented stub; `register()` returns `stub-proof`, heartbeat logs only (no `ProviderRegistry` contract calls) |
+| Registry (Rust) | STUB | `src/registry.rs` — Hub-oriented stub; `register()` returns `stub-proof`, heartbeat logs only (no `ProviderRegistry` contract calls yet); config: `registry_contract_address`, optional `registry.evm_rpc_url` |
 | Public `/identity` | PARTIAL | `GET /identity` — `node_id` = keccak256(pubkey), Ed25519 chain-anchored proof when built with `evm-settlement` + RPC configured |
 | P2P swarm | DONE | libp2p TCP/QUIC, Identify, Ping, mDNS, Kademlia, persistent identity |
 | P2P routing | PARTIAL | Multi-peer discovery works locally, no consumer-facing routing |
 | Encrypted requests | DONE | `epk` + `ciphertext` in inference path |
 | Model visibility | DONE | `include_models` / `exclude_models` config |
-| Unicity legacy | DONE | Feature-gated JSON-RPC anchoring (legacy) |
+| Unicity legacy | REMOVED | Unicity JSON-RPC anchoring and `--features unicity` removed pending a dedicated design |
 | CI/CD | PARTIAL | `ci.yml`: Rust build/test + `evm-settlement` compile, clippy; `contracts.yml`: `forge build` + `forge test` (native + Docker matrix) |
 | Deployment scripts | DONE | Forge scripts: `DeployLocal.s.sol`, `DeployPaseo.s.sol`, `DeploySparklBase.sol` |
 
@@ -104,14 +104,13 @@ Work is ordered by **dependency**: settlement client gaps and registry integrati
 #### 1.3 Provider registration (Rust → ProviderRegistry)
 **Priority: P0**
 
-- [ ] Implement `src/registry.rs` against Hub EVM (today Unicity stub only):
+- [ ] Implement `src/registry.rs` against Hub EVM (today log-only stub):
   - [ ] `register()` — call ProviderRegistry lifecycle (register / chill / mark defunct per current contract API)
   - [ ] `heartbeat()` — on-chain heartbeat or equivalent with provider state
   - [ ] **Defunct flow** — align with Solidity (`chillNode`, `markDefunct`); legacy `deregisterNode` removed on-chain
   - [ ] `get_peer_info()` — query ProviderRegistry for peer details
-- [ ] Clarify `registry.enabled`: drive Hub EVM registration vs Unicity gateway-only; split config if both must coexist
 - [ ] Startup registration with retry/backoff
-- [ ] Config: `registry.enabled`, `registry.heartbeat_secs`
+- [ ] Config: `registry.enabled`, `registry.heartbeat_secs`, `registry.registry_contract_address`, optional `registry.evm_rpc_url`, operator key via `settlement.evm_provider_wallet_private_key`
 - [ ] Graceful degradation on registration failure (log + continue in log-only mode)
 
 #### 1.4 Public identity (`GET /identity`)

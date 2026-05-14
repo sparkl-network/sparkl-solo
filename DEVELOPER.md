@@ -36,7 +36,7 @@ Solidity sources for these contracts live under [`contracts/`](./contracts/) (Fo
 
 **Legacy / transitional**
 
-- The `sparkl-solo` binary may still expose Unicity-oriented config (`registry.unicity_*`) and the `--features unicity` path while integration moves to Hub EVM. Prefer Hub RPC + contract addresses for new work.
+- Unicity receipt anchoring has been **removed** from this tree for now; new work uses **Polkadot Hub EVM** (`[registry]` + `[settlement]`).
 
 ## TEE-tier onboarding (stub attestation)
 
@@ -140,8 +140,8 @@ nras_enabled = false
 cert_ttl_days = 7
 
 [registry]
-unicity_aggregator_url = "https://aggregator.unicity.network"
-unicity_api_key = ""
+registry_contract_address = "0x0000000000000000000000000000000000000000"
+evm_rpc_url = ""
 heartbeat_secs = 30
 enabled = false
 
@@ -189,8 +189,8 @@ nras_enabled = false
 cert_ttl_days = 7
 
 [registry]
-unicity_aggregator_url = "https://aggregator.unicity.network"
-unicity_api_key = ""
+registry_contract_address = "0x0000000000000000000000000000000000000000"
+evm_rpc_url = ""
 heartbeat_secs = 30
 enabled = false
 
@@ -262,8 +262,7 @@ yarn tpm:suite
   - example: `SPARKLE__NETWORK__INFERENCE_PORT=19944`
   - example: `SPARKLE__NETWORK__EXPOSE_STATUS_DETAIL=true`
   - for array values, pass JSON: `SPARKLE__NETWORK__PUBLIC_ADDR='["/ip4/203.0.113.10/tcp/30333"]'`
-  - **Polkadot Hub EVM:** point `settlement.evm_rpc_url` (and `escrow_contract`) at your Hub deployment; same `SPARKLE__SETTLEMENT__EVM_RPC_URL` / `SPARKLE__SETTLEMENT__ESCROW_CONTRACT` overrides apply
-  - **Unicity (legacy / optional):** `registry.unicity_aggregator_url`, e.g. `SPARKLE__REGISTRY__UNICITY_AGGREGATOR_URL=https://goggregator-test.unicity.network/` with `cargo run --features unicity`
+  - **Polkadot Hub EVM:** point `settlement.evm_rpc_url` (and `escrow_contract`) at your Hub deployment; optional `registry.registry_contract_address` and `registry.evm_rpc_url` (empty = same settlement RPC); use `SPARKLE__SETTLEMENT__*` / `SPARKLE__REGISTRY__*` overrides as needed
 - `mock-tpm` is required for laptop/dev workflows.
 - Registry and settlement are disabled in these local configs.
 - If using `llama-swap` on `:8000`, set `backend.url = "http://127.0.0.1:8000"`.

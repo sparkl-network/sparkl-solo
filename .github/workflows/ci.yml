@@ -14,5 +14,3 @@ jobs:
       - run: cargo clippy --features mock-tpm
 
       - run: cargo test --features mock-tpm
-      # Compile tests with Unicity feature enabled without requiring live gateway availability.
-      - run: cargo test --features unicity --no-run

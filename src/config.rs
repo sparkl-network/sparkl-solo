@@ -86,14 +86,28 @@ pub struct AttestationConfig {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct RegistryConfig {
-    #[serde(default = "default_unicity_aggregator_url")]
-    pub unicity_aggregator_url: String,
-    /// When non-empty, sent as `X-API-Key` on Unicity JSON-RPC (`submit_commitment`, inclusion proof queries).
-    /// Inclusion proofs try `get_inclusion_proof` then `get_inclusion_proof.v2` (aggregator-go v2 surface).
+    /// Hub EVM **`ProviderRegistry`** contract address (`0x` + 40 hex). Used when the registry
+    /// client is implemented (`registry.rs`); heartbeat remains a stub until then.
+    #[serde(default = "default_registry_contract_address")]
+    pub registry_contract_address: String,
+    /// Optional **JSON-RPC HTTP(S) URL** for registry calls. When empty, **`settlement.evm_rpc_url`**
+    /// is used (same Hub endpoint as escrow). Operator-signed txs use **`settlement.evm_provider_wallet_private_key`** only.
     #[serde(default)]
-    pub unicity_api_key: String,
+    pub evm_rpc_url: String,
     pub heartbeat_secs: u64,
     pub enabled: bool,
+}
+
+impl RegistryConfig {
+    /// RPC URL for Hub EVM registry interactions: `registry.evm_rpc_url` if set, else settlement’s URL.
+    pub fn effective_evm_rpc_url<'a>(&'a self, settlement: &'a SettlementConfig) -> &'a str {
+        let u = self.evm_rpc_url.trim();
+        if !u.is_empty() {
+            u
+        } else {
+            settlement.evm_rpc_url.trim()
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -178,8 +192,8 @@ fn default_expose_status_detail() -> bool {
     false
 }
 
-fn default_unicity_aggregator_url() -> String {
-    "https://aggregator.unicity.network/".to_string()
+fn default_registry_contract_address() -> String {
+    "0x0000000000000000000000000000000000000000".to_string()
 }
 
 fn default_usage_internal_units_per_micro_usd() -> u128 {
