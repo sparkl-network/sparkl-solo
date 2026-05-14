@@ -58,13 +58,16 @@ jobs:
       - name: forge build + test (Docker)
         if: ${{ matrix.use_docker }}
         run: |
+          # Match host checkout uid/gid so forge can write `out/` on the bind mount (image user ≠ runner).
           docker run --rm \
+            --user "$(id -u):$(id -g)" \
             -v "$GITHUB_WORKSPACE/contracts":/work \
             -w /work \
             --entrypoint forge \
             "$FOUNDRY_DOCKER_IMAGE" \
             build
           docker run --rm \
+            --user "$(id -u):$(id -g)" \
             -v "$GITHUB_WORKSPACE/contracts":/work \
             -w /work \
             --entrypoint forge \
