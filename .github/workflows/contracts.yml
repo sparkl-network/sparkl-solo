@@ -1,4 +1,7 @@
-# Builds and tests Solidity under contracts/ via Foundry — native toolchain and Docker (README parity).
+# Builds and tests Solidity under contracts/ via Foundry — native toolchain (foundry-toolchain) and Docker.
+#
+# Docker uses a pinned ghcr digest (not :latest), which is often missing or stale on GHCR.
+# Bump FOUNDRY_DOCKER_IMAGE when upgrading Foundry; keep roughly in line with native `version: stable`.
 #
 # Branch protection: require the check named "contracts" so merges are blocked unless both matrix legs pass.
 # pull_request has no paths filter on purpose so the "contracts" check always runs and required status stays unambiguous.
@@ -16,6 +19,10 @@ concurrency:
 
 permissions:
   contents: read
+
+env:
+  # ghcr.io/foundry-rs/foundry:v1 multi-arch index (Pin to digest; avoid :latest — see book “Reproducible builds”.)
+  FOUNDRY_DOCKER_IMAGE: ghcr.io/foundry-rs/foundry@sha256:8347b728d5d393dac1c018691b36f506d23b9dcd78341d40ea0fcb11c3a19cdd
 
 jobs:
   forge:
@@ -55,13 +62,13 @@ jobs:
             -v "$GITHUB_WORKSPACE/contracts":/work \
             -w /work \
             --entrypoint forge \
-            ghcr.io/foundry-rs/foundry:latest \
+            "$FOUNDRY_DOCKER_IMAGE" \
             build
           docker run --rm \
             -v "$GITHUB_WORKSPACE/contracts":/work \
             -w /work \
             --entrypoint forge \
-            ghcr.io/foundry-rs/foundry:latest \
+            "$FOUNDRY_DOCKER_IMAGE" \
             test -vv
 
   # Single required status: succeeds only if every forge matrix job succeeded.
