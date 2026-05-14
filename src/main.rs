@@ -27,6 +27,29 @@ async fn main() -> Result<()> {
         .with_env_filter(EnvFilter::new(cfg.node.log_level.clone()))
         .init();
 
+    #[cfg(feature = "evm-settlement")]
+    if cfg.settlement.enabled {
+        let rpc = cfg.registry.effective_evm_rpc_url(&cfg.settlement);
+        let resolved = sparkl_solo::network_config::resolve_with_overrides(rpc, &cfg.registry, &cfg.settlement)
+            .await
+            .map_err(|e| e.context("resolving hub contract addresses"))?;
+        cfg.registry.registry_contract_address =
+            sparkl_solo::network_config::format_address_cfg(resolved.provider_registry);
+        cfg.settlement.escrow_contract =
+            sparkl_solo::network_config::format_address_cfg(resolved.settlement_escrow);
+        match sparkl_solo::network_config::network_config_bootstrap_address() {
+            Some(bootstrap) => info!(
+                version = resolved.version,
+                bootstrap = %bootstrap,
+                "resolved hub contracts (SparklNetworkConfig bootstrap or config fallback)"
+            ),
+            None => info!(
+                version = resolved.version,
+                "resolved hub contracts from config/TOML (bootstrap address unset)"
+            ),
+        }
+    }
+
     let store = Arc::new(Store::open(&cfg.node.data_dir)?);
     let pruned_sessions = store.prune_old_sessions(Duration::from_secs(60 * 60 * 24 * 30))?;
     if pruned_sessions > 0 {

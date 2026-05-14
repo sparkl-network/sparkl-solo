@@ -85,12 +85,20 @@ Use Foundry scripts under [`contracts/`](./contracts/); deployed addresses defau
 5. **Registry attestation signer (optional):** If the address allowed to call `ProviderRegistry.setTEEProof` should differ from the deployer (owner remains deployer unless you migrate ownership later), export `ATTESTATION_SERVICE=0x...`. Otherwise omit it; the deployer is used at deploy time ([`contracts/script/DeployPaseo.s.sol`](./contracts/script/DeployPaseo.s.sol)).
 6. **Simulate:** `forge script script/DeployPaseo.s.sol:DeployPaseo --rpc-url "$PASEO_RPC"` (omit `--broadcast`) and confirm gas / revert output.
 7. **Broadcast:** `forge script script/DeployPaseo.s.sol:DeployPaseo --rpc-url "$PASEO_RPC" --broadcast`
-8. **Artifacts:** Confirm `contracts/deployments/paseo.json` exists and captures `providerRegistry`, `settlementEscrow`, `mockOracle`, `mockUsdc`, timestamps, `chainId`. Optionally commit addresses (no secrets) for team parity.
-9. **Node wiring:** Set `settlement.evm_rpc_url` to `"$PASEO_RPC"` (or canonical endpoint) and `settlement.escrow_contract` to **`settlementEscrow`** from the JSON file. Toggle `settlement.enabled` when integration is enabled.
+8. **Artifacts:** Confirm `contracts/deployments/paseo.json` exists and captures `providerRegistry`, `settlementEscrow`, **`sparklNetworkConfig`** (CREATE2 bootstrap), **`networkConfigSalt`**, `mockOracle`, `mockUsdc`, timestamps, `chainId`. See **[SparklNetworkConfig bootstrap](#sparklnetworkconfig-bootstrap)** below. Optionally commit addresses (no secrets) for team parity.
+9. **Node wiring:** Set `settlement.evm_rpc_url` to `"$PASEO_RPC"` (or canonical endpoint). Either bake **`sparklNetworkConfig`** into **`src/network_config.rs`** (`SPARKL_NETWORK_CONFIG_ADDRESS`) and enable **`settlement.enabled`** with **`evm-settlement`**, **or** set `settlement.escrow_contract` and `registry.registry_contract_address` manually from the JSON. Toggle `settlement.enabled` when integration is enabled.
 10. **Verification:** When Hub EVM block explorers support Solidity verification compatible with Forge, retry with Forge’s `--verify` flags and your chain’s API key docs.
 11. **Output path:** To write elsewhere set `DEPLOYMENTS_OUT=my/path.json` (relative to `contracts/`).
 
 Detailed one-liners and env table: [`contracts/README.md`](./contracts/README.md) (section **Paseo testnet**).
+
+## SparklNetworkConfig bootstrap
+
+Deploy scripts CREATE2-deploy **`SparklNetworkConfig`** with fixed salt **`keccak256(bytes("sparkl.network.config.v1"))`** (see **`contracts/script/DeploySparklBase.sol`**) and write **`sparklNetworkConfig`** plus **`networkConfigSalt`** to **`contracts/deployments/paseo.json`**. Field shape: **`contracts/deployments/paseo.example.json`**.
+
+For **`sparkl-solo`**: update **`SPARKL_NETWORK_CONFIG_ADDRESS`** in **`src/network_config.rs`** to match the deployment, then build with **`evm-settlement`**. With **`settlement.enabled`**, **`main`** resolves **`providerRegistry`** and **`settlementEscrow`** via **`eth_call`** and patches the in-memory config before registry/settlement tasks start. Placeholder **`0x000…000`** skips bootstrap and uses **`[registry]`** / **`[settlement]`** TOML (and **`--registry-contract`** / **`--escrow-contract`** overrides) as before.
+
+**Deferred (phase 2):** background polling of **`version()`** and hot-reloading resolved addresses inside long-running loops (`Arc<RwLock<…>>` or watch channel) is follow-up work.
 
 ## macOS TPM2 tooling note
 

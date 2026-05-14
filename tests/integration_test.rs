@@ -10,6 +10,7 @@ use chrono::Utc;
 use crypto_box::aead::Aead;
 use crypto_box::{PublicKey as CryptoPublicKey, SalsaBox, SecretKey};
 use futures::stream;
+use hex;
 use rand::RngCore;
 use reqwest::Client;
 use serde_json::{json, Value};
@@ -214,6 +215,102 @@ async fn status_exposes_minimal_public_fields() {
         .await
         .expect("send");
     assert_eq!(detail_resp.status(), reqwest::StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+#[serial]
+async fn identity_exposes_trust_anchor_fields() {
+    let backend = Router::new()
+        .route("/health", get(backend_health))
+        .route("/v1/models", get(backend_models))
+        .route("/v1/chat/completions", post(backend_chat));
+    let backend_addr = spawn(backend).await;
+
+    let temp_dir = TempDir::new().expect("tempdir");
+    let mut cfg = test_config(backend_addr, &temp_dir);
+    cfg.network.public_addr = vec!["/dns4/example.invalid/tcp/4001".to_string()];
+    cfg.network.listen_addrs = vec!["/ip4/10.0.0.1/tcp/1234".to_string()];
+
+    let node_identity = identity::load_or_generate(&cfg).await.expect("identity");
+    let store = Arc::new(Store::open(&cfg.node.data_dir).expect("store"));
+    let sessions = Arc::new(SessionManager::new(store));
+    let proxy = Arc::new(BackendProxy::new(&cfg.backend).expect("proxy"));
+
+    let app_state = AppState {
+        config: cfg.clone(),
+        identity: node_identity.clone(),
+        proxy,
+        sessions,
+        swarm_cmd: None,
+        started_at: Utc::now(),
+    };
+    let node_addr = spawn(server::router(app_state)).await;
+
+    let client = Client::new();
+    let resp = client
+        .get(format!("http://{}/identity", node_addr))
+        .send()
+        .await
+        .expect("send");
+    assert_eq!(resp.status(), reqwest::StatusCode::OK);
+    let body: Value = resp.json().await.expect("json body");
+
+    assert_eq!(
+        body.get("peer_id").and_then(Value::as_str),
+        Some(node_identity.peer_id.as_str())
+    );
+    let expected_node_id = identity::on_chain_node_id_hex(&node_identity.ed25519_pubkey);
+    assert_eq!(
+        body.get("node_id").and_then(Value::as_str),
+        Some(expected_node_id.as_str())
+    );
+    let expected_ed_pk = hex::encode(node_identity.ed25519_pubkey);
+    assert_eq!(
+        body.get("ed25519_pubkey").and_then(Value::as_str),
+        Some(expected_ed_pk.as_str())
+    );
+    let expected_x_pk = hex::encode(node_identity.x25519_pubkey);
+    assert_eq!(
+        body.get("x25519_pubkey").and_then(Value::as_str),
+        Some(expected_x_pk.as_str())
+    );
+    assert_eq!(
+        body.get("version").and_then(Value::as_str),
+        Some(env!("CARGO_PKG_VERSION"))
+    );
+
+    let public_addrs = body
+        .get("public_addrs")
+        .and_then(Value::as_array)
+        .expect("public_addrs array");
+    let expected: Vec<&str> = cfg
+        .network
+        .public_addr
+        .iter()
+        .map(String::as_str)
+        .collect();
+    let got: Vec<&str> = public_addrs
+        .iter()
+        .map(|v| v.as_str().expect("public_addrs string"))
+        .collect();
+    assert_eq!(got, expected);
+
+    assert!(
+        body.get("listen_addrs").is_none(),
+        "/identity must not expose listen_addrs"
+    );
+
+    let proof = body.get("proof").expect("proof object");
+    assert_eq!(
+        proof.get("algorithm").and_then(Value::as_str),
+        Some("ed25519")
+    );
+    assert_eq!(
+        proof.get("domain").and_then(Value::as_str),
+        Some("sparkl-identity-v1")
+    );
+    assert_eq!(proof.get("anchor"), Some(&Value::Null));
+    assert_eq!(proof.get("signature"), Some(&Value::Null));
 }
 
 #[tokio::test]

@@ -33,6 +33,7 @@ contract DeployPaseo is DeploySparklBase {
         console2.log("MockERC20 USDC", dep.mockUsdc);
         console2.log("ProviderRegistry", dep.providerRegistry);
         console2.log("SettlementEscrow", dep.settlementEscrow);
+        console2.log("SparklNetworkConfig", dep.sparklNetworkConfig);
         console2.log("wrote deployments file", jsonPath);
     }
 
@@ -47,7 +48,9 @@ contract DeployPaseo is DeploySparklBase {
         vm.serializeAddress(root, "mockOracle", dep.mockOracle);
         vm.serializeAddress(root, "mockUsdc", dep.mockUsdc);
         vm.serializeAddress(root, "providerRegistry", dep.providerRegistry);
-        string memory json = vm.serializeAddress(root, "settlementEscrow", dep.settlementEscrow);
+        vm.serializeAddress(root, "settlementEscrow", dep.settlementEscrow);
+        vm.serializeAddress(root, "sparklNetworkConfig", dep.sparklNetworkConfig);
+        string memory json = vm.serializeBytes32(root, "networkConfigSalt", NETWORK_CONFIG_SALT);
         vm.writeJson(json, path);
     }
 }

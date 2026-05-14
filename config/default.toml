@@ -42,7 +42,9 @@ nras_enabled = false
 cert_ttl_days = 7
 
 [registry]
-# Hub EVM ProviderRegistry (replace with deployed address).
+# Hub EVM ProviderRegistry. When `evm-settlement` is enabled and `src/network_config.rs`
+# `SPARKL_NETWORK_CONFIG_ADDRESS` is set to the deployed `SparklNetworkConfig` (CREATE2), the
+# binary overwrites this from the bootstrap contract at startup; otherwise set it here or via CLI.
 registry_contract_address = "0x0000000000000000000000000000000000000000"
 # Optional: JSON-RPC URL for registry only. Empty = use settlement.evm_rpc_url.
 evm_rpc_url = ""
@@ -53,6 +55,8 @@ enabled = false
 epoch_secs = 600
 # Polkadot Hub EVM (pallet_revive) — replace with your RPC
 evm_rpc_url = "https://YOUR_POLKADOT_HUB_EVM_RPC"
+# SettlementEscrow on Hub EVM. With `evm-settlement` + non-zero `SPARKL_NETWORK_CONFIG_ADDRESS`, startup
+# may overwrite this from the bootstrap contract; otherwise set here or `--escrow-contract`.
 escrow_contract = "0x0000000000000000000000000000000000000000"
 enabled = false
 # Required when building with `--features evm-settlement` and settlement.enabled = true:

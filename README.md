@@ -62,7 +62,7 @@ You can override config with either CLI flags or environment variables.
 - **Arrays via env vars:** use JSON array strings
   - example: `SPARKLE__NETWORK__PUBLIC_ADDR='["/ip4/1.2.3.4/tcp/30333"]'`
 
-**Hub registry (`[registry]`):** `registry_contract_address` is the **`ProviderRegistry`** on Polkadot Hub EVM. Optional `registry.evm_rpc_url` overrides **`settlement.evm_rpc_url`** for registry RPC only; leave empty to use the same RPC as escrow. Operator-signed registry and escrow calls both use **`settlement.evm_provider_wallet_private_key`** (must match **`nodeOperator(nodeId)`** on-chain). The `registry` Rust client in **`src/registry.rs`** is still a stub — on-chain registration/heartbeat is not wired yet.
+**Hub registry (`[registry]`):** `registry_contract_address` is the **`ProviderRegistry`** on Polkadot Hub EVM. With **`--features evm-settlement`**, **`settlement.enabled`**, and a **non-zero** baked-in `SparklNetworkConfig` address in **`src/network_config.rs`**, the node **overwrites** `registry_contract_address` and **`settlement.escrow_contract`** at startup via `eth_call` to that bootstrap contract (see **`contracts/src/SparklNetworkConfig.sol`** and deploy scripts). If the bootstrap address is still zero (placeholder) or RPC fails, use TOML / **`--registry-contract`** / **`--escrow-contract`** as today. Optional `registry.evm_rpc_url` overrides **`settlement.evm_rpc_url`** for registry RPC only; leave empty to use the same RPC as escrow. Operator-signed registry and escrow calls both use **`settlement.evm_provider_wallet_private_key`** (must match **`nodeOperator(nodeId)`** on-chain). The `registry` Rust client in **`src/registry.rs`** is still a stub — on-chain registration/heartbeat is not wired yet.
 
 Common CLI examples:
 

@@ -23,5 +23,6 @@ contract DeployLocal is DeploySparklBase {
         console2.log("MockERC20 USDC", dep.mockUsdc);
         console2.log("ProviderRegistry", dep.providerRegistry);
         console2.log("SettlementEscrow", dep.settlementEscrow);
+        console2.log("SparklNetworkConfig", dep.sparklNetworkConfig);
     }
 }

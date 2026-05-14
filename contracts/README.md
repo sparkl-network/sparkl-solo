@@ -206,7 +206,7 @@ forge script script/DeployPaseo.s.sol:DeployPaseo \
 #   --verify --etherscan-api-key YOUR_KEY ...
 ```
 
-After broadcast, inspect `contracts/deployments/paseo.json` for addresses. Manual checklist for operators: see [DEVELOPER.md](../DEVELOPER.md) (**Deploy to Paseo**).
+After broadcast, inspect `contracts/deployments/paseo.json` for addresses (`sparklNetworkConfig`, `networkConfigSalt`, registry, escrow, mocks). Manual checklist for operators: see [DEVELOPER.md](../DEVELOPER.md) (**Deploy to Paseo** and **SparklNetworkConfig bootstrap**).
 
 ## Configuration notes
 

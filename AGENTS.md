@@ -41,6 +41,7 @@ For repository conventions and review expectations, see **[README.md — How to 
 - **Never** change receipt signing without updating `tests/integration_test.rs`.
 - Hub EVM settlement: `src/settlement/evm.rs` behind `--features evm-settlement` (provider key + settlement operator key must match on-chain `settlementOperator` when `settlement.enabled`).
 - Hub EVM registry (`[registry]`): **`registry_contract_address`** and optional **`evm_rpc_url`** (empty = use **`settlement.evm_rpc_url`**). Operator signing uses **`settlement.evm_provider_wallet_private_key`** for both registry and escrow provider calls.
+- Hub EVM bootstrap: **`src/network_config.rs`** (`SPARKL_NETWORK_CONFIG_ADDRESS`) + **`contracts/src/SparklNetworkConfig.sol`** (CREATE2 salt `keccak256(bytes("sparkl.network.config.v1"))`). When the constant is non-zero and **`settlement.enabled`**, **`main`** resolves **`ProviderRegistry`** / **`SettlementEscrow`** from the bootstrap before spawning loops. **Phase 2** (version polling / hot reload) is deferred — see **[DEVELOPER.md](./DEVELOPER.md#sparklnetworkconfig-bootstrap)**.
 - `identity.rs` has a `#[cfg(feature = "tpm")]` path — when touching identity, validate `mock-tpm` (and `tpm` if relevant).
 
 ## Architecture map
@@ -60,6 +61,7 @@ For repository conventions and review expectations, see **[README.md — How to 
 - `src/identity.rs` — key management; TPM-related gates
 - `src/registry.rs` — hub registry client is **stubbed**; safe to extend with real `ProviderRegistry` calls (see roadmap §1.3)
 - `src/settlement/` — epoch loop; `evm.rs` sends escrow txs when `--features evm-settlement`
+- `src/network_config.rs` — optional `SparklNetworkConfig` bootstrap reads (`evm-settlement`)
 
 ## When adding a new HTTP endpoint
 

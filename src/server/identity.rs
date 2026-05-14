@@ -14,6 +14,10 @@ use super::AppState;
 /// Returns the node's public identity, its advertised p2p addresses, and a
 /// self-signed proof of possession anchored to the current chain head block.
 ///
+/// **Listen addresses are omitted:** internal bind multiaddrs (`network.listen_addrs`)
+/// are not included in this JSON — only operator-configured `public_addrs` appear,
+/// so the endpoint does not leak local or container topology.
+///
 /// A chain-anchored `proof.anchor` / `proof.signature` is produced only when the
 /// binary is built with the **`evm-settlement`** feature (so Alloy is linked),
 /// and settlement RPC is configured. Default/CI builds omit the proof even if
