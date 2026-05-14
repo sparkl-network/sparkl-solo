@@ -58,9 +58,12 @@ jobs:
       - name: forge build + test (Docker)
         if: ${{ matrix.use_docker }}
         run: |
-          # Match host checkout uid/gid so forge can write `out/` on the bind mount (image user ≠ runner).
+          # Match host uid/gid for the bind mount; set HOME because runner (often uid 1001) has no
+          # entry in the image passwd — default HOME=/ is not writable and forge/solc fails (often
+          # reported as permission errors under /work/out).
           docker run --rm \
             --user "$(id -u):$(id -g)" \
+            -e HOME=/tmp \
             -v "$GITHUB_WORKSPACE/contracts":/work \
             -w /work \
             --entrypoint forge \
@@ -68,6 +71,7 @@ jobs:
             build
           docker run --rm \
             --user "$(id -u):$(id -g)" \
+            -e HOME=/tmp \
             -v "$GITHUB_WORKSPACE/contracts":/work \
             -w /work \
             --entrypoint forge \
