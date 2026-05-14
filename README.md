@@ -6,6 +6,8 @@ Rust prototype for the `sparkl-solo` binary.
 
 Sparkl is a decentralized private AI inference network for routing model requests across independent provider nodes.
 
+- see also [sparkl-portal](https://github.com/sparkl-network/sparkl-portal) for the portal/UI
+
 ## Target architecture
 
 **Goals:** payments and escrow on **Polkadot Hub EVM** (`pallet_revive`) using **DOT** first and **USDC** later (Hub **ERC-20 precompile**). Two provider tiers: **Tier A** (TEE-verified, confidential / verifiable inference) and **Tier B** (best-effort, cheaper). Consumers choose the tier; pricing may differ by tier.

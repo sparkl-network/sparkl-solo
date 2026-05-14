@@ -10,6 +10,8 @@ Build a **working, self-contained sparkl-solo provider node** that can:
 5. Verify TEE attestation for Tier A providers
 6. Discover and route through the P2P network
 
+**Hub EVM `nodeId`:** canonical **`bytes32` = `keccak256(ed25519_pubkey)`** (see `identity::on_chain_node_id_*` and **`GET /identity`**); do not derive registry/escrow ids from x25519 or libp2p multihash.
+
 ### How to read this document
 
 - **Gap analysis** — snapshot of **main** vs goals (updated when behavior changes).

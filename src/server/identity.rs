@@ -2,7 +2,6 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use alloy_primitives::keccak256;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
@@ -40,10 +39,8 @@ pub async fn identity(State(state): State<AppState>) -> Response {
     };
     let ed25519_pubkey_bytes = node_identity.ed25519_pubkey;
 
-    // -- 2. Derive on-chain nodeId: keccak256(ed25519_pubkey)
-    // Must match the derivation used during registerNode in the portal.
-    let node_id_bytes32 = keccak256(ed25519_pubkey_bytes);
-    let node_id_hex = format!("0x{}", hex::encode(node_id_bytes32.as_slice()));
+    // -- 2. Derive on-chain nodeId (single canonical rule: see identity::on_chain_node_id_bytes)
+    let node_id_hex = identity::on_chain_node_id_hex(&ed25519_pubkey_bytes);
 
     // -- 3. Fetch chain head block hash (if EVM configured)
     let chain_proof = if state.config.settlement.enabled

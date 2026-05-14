@@ -44,6 +44,8 @@ For repository conventions and review expectations, see **[README.md — How to 
 
 ## Architecture map
 
+**Hub EVM `nodeId` (`bytes32`):** **`keccak256(ed25519_pubkey)`** — single canonical derivation in **`identity::on_chain_node_id_bytes`** / **`on_chain_node_id_hex`**. **`GET /identity`** uses the same rule. Do not use SHA256(x25519), libp2p multihash digests, or other hashes for registry/escrow `nodeId`.
+
 **On-chain:** Polkadot Hub EVM — `SettlementEscrow`, `ProviderRegistry`, `IPriceOracle` (see `contracts/`). Tier A = TEE-verified (attestation flow writes proof on-chain); Tier B = best-effort.
 
 **Off-chain:** Attestation service and routing/aggregators. **MVP TEE stub:** [`services/tee-attestation-stub/README.md`](./services/tee-attestation-stub/README.md) (`GET /v1/challenge`, `POST /v1/attest` → on-chain [`ProviderRegistry.setTEEProof`](./contracts/src/ProviderRegistry.sol)); stub `ADMIN_PRIVATE_KEY` must match registry `attestationService` when testing that path.

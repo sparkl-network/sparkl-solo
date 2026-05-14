@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::sync::RwLock;
 
+use alloy_primitives::keccak256;
 use anyhow::{anyhow, Context, Result};
 use crypto_box::aead::Aead;
 use crypto_box::{PublicKey as CryptoPublicKey, SalsaBox, SecretKey};
@@ -20,7 +21,29 @@ use crate::config::Config;
 pub struct NodeIdentity {
     pub peer_id: String,
     pub x25519_pubkey: [u8; 32],
+    /// Verifying key bytes for Ed25519 (Dalek / signing identity).
+    /// **Hub EVM `bytes32` node id** = [`on_chain_node_id_bytes`] of this field — do not use other hashes.
     pub ed25519_pubkey: [u8; 32],
+}
+
+/// `bytes32` **`nodeId`** for `ProviderRegistry` and `SettlementEscrow` on Hub EVM.
+///
+/// **Single canonical rule:** `keccak256(ed25519_pubkey)` over the raw 32-byte public key.
+/// Do not use SHA256(x25519_pubkey), libp2p multihash digests, or other recipes for this value.
+#[must_use]
+pub fn on_chain_node_id_bytes(ed25519_pubkey: &[u8; 32]) -> [u8; 32] {
+    keccak256(ed25519_pubkey).0
+}
+
+/// `0x`-prefixed 64-hex **`nodeId`** (same JSON field as **`GET /identity`** on the node).
+#[must_use]
+pub fn on_chain_node_id_hex(ed25519_pubkey: &[u8; 32]) -> String {
+    format!("0x{}", hex::encode(on_chain_node_id_bytes(ed25519_pubkey)))
+}
+
+#[must_use]
+pub fn on_chain_node_id_from_identity(id: &NodeIdentity) -> [u8; 32] {
+    on_chain_node_id_bytes(&id.ed25519_pubkey)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -295,4 +318,25 @@ fn tpm_getrandom_64() -> Result<[u8; 64]> {
 #[allow(dead_code)]
 fn _identity_dir(data_dir: &PathBuf) -> PathBuf {
     data_dir.clone()
+}
+
+#[cfg(test)]
+mod on_chain_node_id_tests {
+    use super::{on_chain_node_id_bytes, on_chain_node_id_hex};
+    use alloy_primitives::keccak256;
+
+    #[test]
+    fn on_chain_node_id_matches_keccak256_of_ed25519_pubkey() {
+        let pk: [u8; 32] = std::array::from_fn(|i| (i as u8).wrapping_mul(17));
+        let expected = keccak256(pk);
+        assert_eq!(on_chain_node_id_bytes(&pk), expected.0);
+    }
+
+    #[test]
+    fn on_chain_node_id_hex_format() {
+        let pk = [0xabu8; 32];
+        let h = on_chain_node_id_hex(&pk);
+        assert!(h.starts_with("0x"));
+        assert_eq!(h.len(), 2 + 64);
+    }
 }
