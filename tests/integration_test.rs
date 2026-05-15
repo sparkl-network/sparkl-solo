@@ -106,6 +106,7 @@ fn test_config(backend_addr: SocketAddr, temp_dir: &TempDir) -> Config {
             epoch_secs: 600,
             evm_rpc_url: "https://example.com".to_string(),
             escrow_contract: "0x0".to_string(),
+            sparkl_network_config_address: String::new(),
             enabled: false,
             evm_provider_wallet_private_key: String::new(),
             evm_settlement_operator_wallet_private_key: String::new(),

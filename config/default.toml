@@ -58,6 +58,10 @@ evm_rpc_url = "https://YOUR_POLKADOT_HUB_EVM_RPC"
 # SettlementEscrow on Hub EVM. With `evm-settlement` + non-zero `SPARKL_NETWORK_CONFIG_ADDRESS`, startup
 # may overwrite this from the bootstrap contract; otherwise set here or `--escrow-contract`.
 escrow_contract = "0x0000000000000000000000000000000000000000"
+# Bootstrap `SparklNetworkConfig` (overrides compile-time `SPARKL_NETWORK_CONFIG_ADDRESS` when non-empty).
+# Leave empty for production binaries that bake the address in `src/network_config.rs` (see `contracts/deployments/paseo.json`).
+# `--sparkl-network-config-address` wins over this field.
+sparkl_network_config_address = ""
 enabled = false
 # Required when building with `--features evm-settlement` and settlement.enabled = true:
 # Node operator key — must match registry.nodeOperator(nodeId) for each settled session's nodeId.

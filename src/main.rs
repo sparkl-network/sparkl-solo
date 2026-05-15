@@ -37,7 +37,9 @@ async fn main() -> Result<()> {
             sparkl_solo::network_config::format_address_cfg(resolved.provider_registry);
         cfg.settlement.escrow_contract =
             sparkl_solo::network_config::format_address_cfg(resolved.settlement_escrow);
-        match sparkl_solo::network_config::network_config_bootstrap_address() {
+        match sparkl_solo::network_config::effective_network_config_bootstrap_address(
+            &cfg.settlement.sparkl_network_config_address,
+        ) {
             Some(bootstrap) => info!(
                 version = resolved.version,
                 bootstrap = %bootstrap,
@@ -138,6 +140,7 @@ struct CliArgs {
     evm_rpc_url: Option<String>,
     escrow_contract: Option<String>,
     settlement_enabled: Option<bool>,
+    sparkl_network_config_address: Option<String>,
     price_input_micro_usd_per_m: Option<u64>,
     price_output_micro_usd_per_m: Option<u64>,
 }
@@ -177,6 +180,7 @@ where
         evm_rpc_url: None,
         escrow_contract: None,
         settlement_enabled: None,
+        sparkl_network_config_address: None,
         price_input_micro_usd_per_m: None,
         price_output_micro_usd_per_m: None,
     };
@@ -278,6 +282,12 @@ where
             }
             "--settlement-enabled" => {
                 out.settlement_enabled = Some(parse_bool_flag(&mut args, "--settlement-enabled")?)
+            }
+            "--sparkl-network-config-address" => {
+                out.sparkl_network_config_address = Some(required_value(
+                    &mut args,
+                    "--sparkl-network-config-address",
+                )?)
             }
             "--price-input-micro-usd-per-m" => {
                 out.price_input_micro_usd_per_m =
@@ -432,6 +442,9 @@ fn apply_cli_overrides(cfg: &mut config::Config, cli: &CliArgs) -> Result<()> {
     }
     if let Some(v) = cli.settlement_enabled {
         cfg.settlement.enabled = v;
+    }
+    if let Some(v) = &cli.sparkl_network_config_address {
+        cfg.settlement.sparkl_network_config_address = v.clone();
     }
     if let Some(v) = cli.price_input_micro_usd_per_m {
         cfg.pricing.micro_usd_per_m_input_tokens = v;

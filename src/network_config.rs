@@ -10,11 +10,12 @@ use anyhow::{Context, Result};
 use crate::config::{RegistryConfig, SettlementConfig};
 
 /// Hardcoded `SparklNetworkConfig` deployment (CREATE2). **Ceremony:** after the deploy script runs,
-/// replace this with the address written to `contracts/deployments/paseo.json` (`sparklNetworkConfig`)
-/// and rebuild. Template fields live in `contracts/deployments/paseo.example.json`. The salt hex in
+/// set this to the `sparklNetworkConfig` value in `contracts/deployments/paseo.json` and rebuild.
+/// Template fields live in `contracts/deployments/paseo.example.json`. The salt hex in
 /// that file is `keccak256(bytes("sparkl.network.config.v1"))` (matches `DeploySparklBase.NETWORK_CONFIG_SALT`).
 ///
-/// Until non-zero: nodes rely on `[registry].registry_contract_address` and `[settlement].escrow_contract`
+/// Until non-zero: nodes rely on `[settlement].sparkl_network_config_address`, `--sparkl-network-config-address`,
+/// or `[registry].registry_contract_address` / `[settlement].escrow_contract`
 /// from TOML/CLI (see `resolve_with_overrides`).
 pub const SPARKL_NETWORK_CONFIG_ADDRESS: &str =
     "0x0000000000000000000000000000000000000000";
@@ -33,8 +34,8 @@ pub struct ResolvedHubAddresses {
     pub version: u64,
 }
 
-/// `None` when the constant is absent, invalid hex, or the zero address (dev / not yet configured).
-pub fn network_config_bootstrap_address() -> Option<Address> {
+/// Compile-time bootstrap only: `None` when unset, invalid hex, or zero address.
+fn compile_time_network_config_bootstrap_address() -> Option<Address> {
     let s = SPARKL_NETWORK_CONFIG_ADDRESS.trim();
     if s.is_empty() {
         return None;
@@ -44,6 +45,21 @@ pub fn network_config_bootstrap_address() -> Option<Address> {
         return None;
     }
     Some(addr)
+}
+
+/// Effective bootstrap: **`config_override`** (TOML / env / CLI) when non-empty, else compile-time
+/// [`SPARKL_NETWORK_CONFIG_ADDRESS`]. Empty override falls back to compile-time; explicit zero address
+/// in the override disables bootstrap (same as an unset/zero compile-time default).
+pub fn effective_network_config_bootstrap_address(config_override: &str) -> Option<Address> {
+    let t = config_override.trim();
+    if !t.is_empty() {
+        let addr: Address = t.parse().ok()?;
+        if addr == Address::ZERO {
+            return None;
+        }
+        return Some(addr);
+    }
+    compile_time_network_config_bootstrap_address()
 }
 
 pub fn parse_evm_address_field(raw: &str, field: &'static str) -> Result<Address> {
@@ -102,14 +118,15 @@ fn fallback_from_config(registry: &RegistryConfig, settlement: &SettlementConfig
     })
 }
 
-/// Prefer on-chain bootstrap when [`SPARKL_NETWORK_CONFIG_ADDRESS`] is set and non-zero; otherwise
-/// (or on `eth_call` failure) use registry + escrow from config.
+/// Prefer on-chain bootstrap when the effective bootstrap address (see [`effective_network_config_bootstrap_address`])
+/// is set and non-zero; otherwise (or on `eth_call` failure) use registry + escrow from config.
 pub async fn resolve_with_overrides(
     rpc_url: &str,
     registry: &RegistryConfig,
     settlement: &SettlementConfig,
 ) -> Result<ResolvedHubAddresses> {
-    let Some(bootstrap) = network_config_bootstrap_address() else {
+    let Some(bootstrap) = effective_network_config_bootstrap_address(&settlement.sparkl_network_config_address)
+    else {
         return fallback_from_config(registry, settlement);
     };
 

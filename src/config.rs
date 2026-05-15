@@ -115,6 +115,11 @@ pub struct SettlementConfig {
     pub epoch_secs: u64,
     pub evm_rpc_url: String,
     pub escrow_contract: String,
+    /// Optional `SparklNetworkConfig` bootstrap address (`0x` + 40 hex). When non-empty and not
+    /// the zero address, overrides the compile-time `SPARKL_NETWORK_CONFIG_ADDRESS` in `network_config.rs`
+    /// (for local/dev). Empty: use the baked-in constant. Env: `SPARKLE_SETTLEMENT__SPARKL_NETWORK_CONFIG_ADDRESS`.
+    #[serde(default)]
+    pub sparkl_network_config_address: String,
     pub enabled: bool,
     /// Hex-encoded secp256k1 key (`0x` optional). Must match `ProviderRegistry.nodeOperator(nodeId)` for each
     /// session’s `nodeId` when sending `recordUsage` / provider-side escrow calls.
