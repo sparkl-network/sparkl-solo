@@ -13,7 +13,7 @@ use serde_json::{json, Value};
 use tracing::{info, warn};
 
 use crate::identity;
-use crate::receipts::{encode_receipt_for_sse, generate_receipt, hash_chunk, provider_identity};
+use crate::receipts::{encode_receipt_for_sse, generate_receipt_with_tee, hash_chunk, provider_identity};
 use crate::session::SessionState;
 
 use super::AppState;
@@ -75,11 +75,39 @@ pub async fn chat_completions(
     let output_price_per_m = state.config.pricing.micro_usd_per_m_output_tokens;
 
     let event_stream = stream! {
-        let session_id = sessions.open(
-            &model,
-            consumer_epk,
-            state.config.node.session_security_tier,
-        );
+        // Determine TEE quote hash for this session.
+        // When session_security_tier is TeeVerified, attempt to generate a TEE quote.
+        let tee_quote_hash = if state.config.node.session_security_tier
+            == crate::session::SecurityTier::TeeVerified
+        {
+            match crate::tee_verification::generate_quote(crate::tee_verification::TeeVendor::Mock).await {
+                Ok(quote) => {
+                    info!(vendor = %quote.vendor, "TEE quote generated for session");
+                    Some(quote.canonical_hash())
+                }
+                Err(err) => {
+                    warn!(%err, "TEE quote generation failed; falling back to best-effort");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        let session_id = if let Some(ref hash) = tee_quote_hash {
+            sessions.open_with_tee(
+                &model,
+                consumer_epk,
+                state.config.node.session_security_tier,
+                Some(*hash),
+            )
+        } else {
+            sessions.open(
+                &model,
+                consumer_epk,
+                state.config.node.session_security_tier,
+            )
+        };
 
         let identity = match provider_identity() {
             Ok(i) => i,
@@ -131,7 +159,7 @@ pub async fn chat_completions(
 
                         if let Some(session) = sessions.get(session_id) {
                             if session.tokens_output % receipt_cadence == 0 {
-                                let receipt = match generate_receipt(&session, &identity, content_hash) {
+                                let receipt = match generate_receipt_with_tee(&session, &identity, content_hash, session.tee_quote_hash) {
                                     Ok(r) => r,
                                     Err(err) => {
                                         warn!(%err, "receipt generation failed");

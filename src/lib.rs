@@ -8,5 +8,6 @@ pub mod server;
 pub mod session;
 pub mod settlement;
 pub mod store;
+pub mod tee_verification;
 #[cfg(feature = "evm-settlement")]
 pub mod network_config;
