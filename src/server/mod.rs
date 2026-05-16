@@ -19,6 +19,7 @@ pub mod identity;
 pub mod inference;
 pub mod models;
 pub mod receipts;
+pub mod tee;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -42,6 +43,7 @@ pub fn router(state: AppState) -> Router {
         .route("/receipts/proof/{session_id}/{seq}", get(receipts::proof))
         .route("/v1/models", get(models::list_models))
         .route("/v1/chat/completions", post(inference::chat_completions))
+        .route("/tee/verify", post(tee::verify_quote))
         .with_state(state)
 }
 

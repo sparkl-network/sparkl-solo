@@ -50,6 +50,10 @@ pub struct Session {
     /// Tokens-output watermark after the last successful `TEE_VERIFIED` streaming partial settle on escrow.
     #[serde(default)]
     pub evm_tee_anchor_tokens: u64,
+    /// Canonical TEE quote hash for this session (32-byte SHA-256 of the TEE quote).
+    /// When present, all receipts in this session must carry the same hash for Tier A verification.
+    #[serde(default)]
+    pub tee_quote_hash: Option<[u8; 32]>,
 }
 
 #[derive(Clone)]
@@ -72,6 +76,20 @@ impl SessionManager {
         consumer_pubkey: Option<[u8; 32]>,
         security_tier: SecurityTier,
     ) -> Uuid {
+        self.open_with_tee(model, consumer_pubkey, security_tier, None)
+    }
+
+    /// Open a TEE-verified session with a known quote hash.
+    ///
+    /// The `tee_quote_hash` is stored on the session and used to validate
+    /// all receipts generated during the session.
+    pub fn open_with_tee(
+        &self,
+        model: &str,
+        consumer_pubkey: Option<[u8; 32]>,
+        security_tier: SecurityTier,
+        tee_quote_hash: Option<[u8; 32]>,
+    ) -> Uuid {
         let id = Uuid::new_v4();
         let session = Session {
             id,
@@ -88,6 +106,7 @@ impl SessionManager {
             security_tier,
             evm_session_id: None,
             evm_tee_anchor_tokens: 0,
+            tee_quote_hash,
         };
         let _ = self.store.save_session(&session);
         self.sessions.insert(id, Arc::new(Mutex::new(session)));
