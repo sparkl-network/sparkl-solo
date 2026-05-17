@@ -149,6 +149,14 @@ pub struct SettlementConfig {
     /// When non-zero, further throttle TEE touches to at least this many new RPC head blocks since last eligible settle.
     #[serde(default)]
     pub tee_settle_every_n_blocks: u64,
+    /// Minimum internal deposit (in escrow internal units) when opening a session on-chain.
+    /// Must be > 0 to satisfy `openSession`'s `BadAmount` revert. Default: 1e18 (1 unit at 18 decimals).
+    #[serde(default = "default_session_min_deposit")]
+    pub session_min_deposit: u64,
+}
+
+fn default_session_min_deposit() -> u64 {
+    1_000_000_000_000_000_000u64 // 1e18
 }
 
 #[derive(Debug, Deserialize, Clone)]
