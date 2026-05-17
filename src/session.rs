@@ -75,20 +75,25 @@ impl SessionManager {
         model: &str,
         consumer_pubkey: Option<[u8; 32]>,
         security_tier: SecurityTier,
+        evm_session_id: Option<u64>,
     ) -> Uuid {
-        self.open_with_tee(model, consumer_pubkey, security_tier, None)
+        self.open_with_tee(model, consumer_pubkey, security_tier, None, evm_session_id)
     }
 
     /// Open a TEE-verified session with a known quote hash.
     ///
     /// The `tee_quote_hash` is stored on the session and used to validate
     /// all receipts generated during the session.
+    ///
+    /// When `evm_session_id` is `Some`, the session is linked to an on-chain
+    /// `SettlementEscrow` session (set before calling `openSession`).
     pub fn open_with_tee(
         &self,
         model: &str,
         consumer_pubkey: Option<[u8; 32]>,
         security_tier: SecurityTier,
         tee_quote_hash: Option<[u8; 32]>,
+        evm_session_id: Option<u64>,
     ) -> Uuid {
         let id = Uuid::new_v4();
         let session = Session {
@@ -104,7 +109,7 @@ impl SessionManager {
             last_receipt_seq: 0,
             amount_micro_usd: 0,
             security_tier,
-            evm_session_id: None,
+            evm_session_id,
             evm_tee_anchor_tokens: 0,
             tee_quote_hash,
         };

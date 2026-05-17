@@ -519,6 +519,98 @@ fn usage_within_tee_tolerance(local_total: U256, usage: U256, bps: u16) -> bool 
     usage <= local_total.saturating_add(slack)
 }
 
+/// Open a session on the Hub EVM `SettlementEscrow` contract.
+///
+/// Reads `nextSessionId()` before sending the tx so the caller knows the
+/// session ID that will be assigned (the contract does `uint256 id = nextSessionId++`).
+///
+/// Returns `Ok(session_id)` on success, or `Err` if EVM settlement is not
+/// configured / the call fails. When the provider wallet key is missing or
+/// the escrow contract is unset, returns `Ok(None)` (graceful degradation).
+pub async fn open_session_on_chain(
+    escrow_addr_str: &str,
+    rpc_url: &str,
+    provider_pk: &str,
+    node_id: [u8; 32],
+    tier: SecurityTier,
+    min_deposit: u64,
+) -> Result<Option<u64>> {
+    let escrow_addr: Address = escrow_addr_str
+        .trim()
+        .parse()
+        .map_err(|e| anyhow::anyhow!("invalid escrow_contract address: {e}"))?;
+
+    if escrow_addr == Address::ZERO {
+        warn!("escrow_contract is zero address; skipping on-chain session open");
+        return Ok(None);
+    }
+
+    let rpc_url_parsed = rpc_url
+        .trim()
+        .parse::<reqwest::Url>()
+        .context("invalid settlement.evm_rpc_url")?;
+
+    let pk = provider_pk.trim();
+    if pk.is_empty() {
+        warn!("settlement.evm_provider_wallet_private_key not configured; skipping on-chain session open");
+        return Ok(None);
+    }
+
+    let signer = signer_from_hex(pk)?;
+
+    let provider = ProviderBuilder::new()
+        .wallet(signer)
+        .fetch_chain_id()
+        .connect_http(rpc_url_parsed);
+
+    let escrow = SettlementEscrow::new(escrow_addr, &provider);
+
+    // Read the next session ID before opening (contract does id = nextSessionId++)
+    let next_id = escrow.nextSessionId().call().await.map_err(|e| {
+        anyhow::anyhow!("failed to read nextSessionId: {e}")
+    })?;
+
+    let chain_sid: u64 = next_id.try_into().map_err(|_| {
+        anyhow::anyhow!("nextSessionId overflowed u64")
+    })?;
+
+    let tier_u8 = match tier {
+        SecurityTier::BestEffort => 0u8,
+        SecurityTier::TeeVerified => 1u8,
+    };
+
+    let deposit_u256 = U256::from(min_deposit);
+
+    info!(
+        session_id = chain_sid,
+        node_id = %hex::encode(node_id),
+        tier = ?tier,
+        deposit = %min_deposit,
+        "opening session on SettlementEscrow"
+    );
+
+    let pending = escrow
+        .openSession(node_id.into(), tier_u8, deposit_u256)
+        .value(deposit_u256)
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("openSession send failed: {e}"))?;
+
+    let tx_hash = pending
+        .with_required_confirmations(1)
+        .watch()
+        .await
+        .map_err(|e| anyhow::anyhow!("openSession confirmation failed: {e}"))?;
+
+    info!(
+        session_id = chain_sid,
+        ?tx_hash,
+        "session opened on-chain successfully"
+    );
+
+    Ok(Some(chain_sid))
+}
+
 fn signer_from_hex(key: &str) -> Result<PrivateKeySigner> {
     let hex_str = key.strip_prefix("0x").unwrap_or(key).trim();
     let bytes = hex::decode(hex_str).context("private key hex decode failed")?;

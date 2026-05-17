@@ -115,6 +115,7 @@ fn test_config(backend_addr: SocketAddr, temp_dir: &TempDir) -> Config {
             tee_settle_tokens_threshold: 256,
             usage_tolerance_bps: 100,
             tee_settle_every_n_blocks: 0,
+            session_min_deposit: 1_000_000_000_000_000_000,
         },
         pricing: PricingConfig {
             micro_usd_per_m_input_tokens: 100,
@@ -381,7 +382,7 @@ async fn returns_stored_unicity_proof_for_receipt() {
     };
     let node_addr = spawn(server::router(app_state)).await;
 
-    let session_id = sessions.open("mock-model", None, SecurityTier::BestEffort);
+    let session_id = sessions.open("mock-model", None, SecurityTier::BestEffort, None);
     let stored_proof = UnicityProof {
         request_id: "req-123".to_string(),
         state_id: "state-123".to_string(),
@@ -793,7 +794,7 @@ async fn recovers_active_sessions_after_restart() {
     let store = Arc::new(Store::open(temp_dir.path()).expect("store"));
 
     let sessions_before = SessionManager::new(store.clone());
-    let session_id = sessions_before.open("mock-model", None, SecurityTier::BestEffort);
+    let session_id = sessions_before.open("mock-model", None, SecurityTier::BestEffort, None);
     sessions_before.record_chunk(session_id, 5, [0u8; 32], 1_000_000);
 
     let sessions_after = SessionManager::new(store);

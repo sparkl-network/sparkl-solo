@@ -53,7 +53,7 @@ Build a **working, self-contained sparkl-solo provider node** that can:
 | SettlementEscrow contract | DONE | Solidity: deposit/withdraw, epoch settlement, open sessions |
 | Price Oracle (DIAPriceOracle) | DONE | DOT/USD + USDC/USD feed → USDC/DOT conversion |
 | Price Oracle (Pyth) | PLACEHOLDER | Reverts with `NotImplemented()` |
-| EVM settlement (Rust) | PARTIAL | `settlement/evm.rs` (feature `evm-settlement`): `recordUsage`, operator `settleByOperatorFull` / `settleByOperatorPartial`, read `ProviderRegistry.nodeOperator`, session state; **no** deposit/withdraw in Rust; **`Session.evm_session_id` never set** → settlement path skips all sessions today |
+| EVM settlement (Rust) | PARTIAL | `settlement/evm.rs` (feature `evm-settlement`): `recordUsage`, operator `settleByOperatorFull` / `settleByOperatorPartial`, read `ProviderRegistry.nodeOperator`, session state; **no** deposit/withdraw in Rust; **`open_session_on_chain()` wired into inference handler — `Session.evm_session_id` now set from `openSession` call** |
 | Registry (Rust) | STUB | `src/registry.rs` — Hub-oriented stub; `register()` returns `stub-proof`, heartbeat logs only (no `ProviderRegistry` contract calls yet); config: `registry_contract_address`, optional `registry.evm_rpc_url` |
 | Public `/identity` | PARTIAL | `GET /identity` — `node_id` = keccak256(pubkey), Ed25519 chain-anchored proof when built with `evm-settlement` + RPC configured |
 | P2P swarm | DONE | libp2p TCP/QUIC, Identify, Ping, mDNS, Kademlia, persistent identity |
@@ -84,7 +84,7 @@ Work is ordered by **dependency**: settlement client gaps and registry integrati
 - [x] Degrade gracefully: RPC/keys/operator mismatch → warn and skip tick
 
 **Still missing:**
-- [ ] **On-chain session id** — set `Session.evm_session_id` from consumer `openSession` / API (today always `None` → every settle attempt is skipped)
+- [x] **On-chain session id** — `open_session_on_chain()` in `settlement/evm.rs`; `Session.evm_session_id` set from `openSession` call in inference handler; `session_min_deposit` config field (default 1e18)
 - [ ] **`deposit_dot()` / `deposit_usdc()`** — funding paths in Rust (`depositDot`, `depositUsdcAsDot`)
 - [ ] **`withdraw_earnings()`** — provider withdrawal in Rust
 - [ ] **`settle_epoch_batch()`** — confirm whether an explicit batch tx is required vs current per-session operator settle; implement or close as N/A

@@ -1,5 +1,5 @@
 #[cfg(feature = "evm-settlement")]
-mod evm;
+pub(crate) mod evm;
 
 use std::sync::Arc;
 use std::time::Duration;

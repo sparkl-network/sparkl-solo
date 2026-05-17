@@ -94,18 +94,65 @@ pub async fn chat_completions(
             None
         };
 
+        // Attempt to open an on-chain session (graceful degradation if unset).
+        // Only available when `evm-settlement` feature is enabled.
+        let evm_session_id: Option<u64> = {
+            #[cfg(feature = "evm-settlement")]
+            {
+                if state.config.settlement.enabled {
+                    let escrow_addr = state.config.settlement.escrow_contract.clone();
+                    let rpc_url = state.config.registry.effective_evm_rpc_url(&state.config.settlement).to_string();
+                    let pk = state.config.settlement.evm_provider_wallet_private_key.clone();
+                    let min_deposit = state.config.settlement.session_min_deposit;
+                    let tier = state.config.node.session_security_tier;
+
+                    match crate::identity::on_chain_node_id_from_identity(&state.identity) {
+                        node_id => {
+                            match crate::settlement::evm::open_session_on_chain(
+                                &escrow_addr,
+                                &rpc_url,
+                                &pk,
+                                node_id,
+                                tier,
+                                min_deposit,
+                            ).await {
+                                Ok(id) => {
+                                    if id.is_some() {
+                                        info!(evm_session_id = ?id, "on-chain session opened");
+                                    }
+                                    id
+                                }
+                                Err(err) => {
+                                    warn!(%err, "open_session_on_chain failed; session will not be linked to escrow");
+                                    None
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    None
+                }
+            }
+            #[cfg(not(feature = "evm-settlement"))]
+            {
+                None
+            }
+        };
+
         let session_id = if let Some(ref hash) = tee_quote_hash {
             sessions.open_with_tee(
                 &model,
                 consumer_epk,
                 state.config.node.session_security_tier,
                 Some(*hash),
+                evm_session_id,
             )
         } else {
             sessions.open(
                 &model,
                 consumer_epk,
                 state.config.node.session_security_tier,
+                evm_session_id,
             )
         };
 
