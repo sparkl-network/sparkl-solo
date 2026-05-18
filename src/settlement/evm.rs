@@ -623,3 +623,304 @@ fn bill_internal(micro_usd: u64, units_per_micro_usd: u128) -> Result<U256> {
     u.checked_mul(rate)
         .ok_or_else(|| anyhow::anyhow!("bill_internal overflow"))
 }
+
+// ---------------------------------------------------------------------------
+// Deposit / Withdraw helpers (issues #7, #8, #9)
+// ---------------------------------------------------------------------------
+
+/// Deposit native DOT into the escrow contract on behalf of the node operator.
+///
+/// Credits the operator's internal DOT balance by converting `amount_native`
+/// via the escrow's `_nativeToInternal` rate.  Returns the transaction hash
+/// on success.
+///
+/// Gracefully degrades to `Ok(None)` when:
+/// - settlement is disabled / escrow contract is zero
+/// - provider wallet key is missing
+/// - RPC call fails
+pub async fn deposit_dot(
+    escrow_addr_str: &str,
+    rpc_url: &str,
+    provider_pk: &str,
+    amount_native: u64,
+) -> Result<Option<String>> {
+    if amount_native == 0 {
+        warn!("deposit_dot called with zero amount; skipping");
+        return Ok(None);
+    }
+
+    let escrow_addr: Address = escrow_addr_str
+        .trim()
+        .parse()
+        .map_err(|e| anyhow::anyhow!("invalid escrow_contract address: {e}"))?;
+
+    if escrow_addr == Address::ZERO {
+        warn!("escrow_contract is zero address; skipping deposit");
+        return Ok(None);
+    }
+
+    let pk = provider_pk.trim();
+    if pk.is_empty() {
+        warn!("settlement.evm_provider_wallet_private_key not configured; skipping deposit");
+        return Ok(None);
+    }
+
+    let signer = signer_from_hex(pk)?;
+
+    let rpc_url_parsed = rpc_url
+        .trim()
+        .parse::<reqwest::Url>()
+        .context("invalid settlement.evm_rpc_url")?;
+
+    let provider = ProviderBuilder::new()
+        .wallet(signer)
+        .fetch_chain_id()
+        .connect_http(rpc_url_parsed);
+
+    let escrow = SettlementEscrow::new(escrow_addr, &provider);
+
+    let amount_u256 = U256::from(amount_native);
+
+    info!(
+        amount_native = %amount_native,
+        "depositing native DOT into SettlementEscrow"
+    );
+
+    let pending = escrow
+        .depositDot()
+        .value(amount_u256)
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("depositDot send failed: {e}"))?;
+
+    let tx_hash = pending
+        .with_required_confirmations(1)
+        .watch()
+        .await
+        .map_err(|e| anyhow::anyhow!("depositDot confirmation failed: {e}"))?;
+
+    info!(?tx_hash, "deposit_dot confirmed");
+
+    Ok(Some(tx_hash.to_string()))
+}
+
+/// Deposit USDC as DOT by calling `depositUsdcAsDot` on the escrow contract.
+///
+/// The escrow contract handles the USDC transfer + oracle conversion internally.
+/// `min_dot_internal_out` and `max_oracle_age_secs` control slippage and staleness.
+///
+/// Returns the transaction hash on success, or `Ok(None)` on graceful degradation.
+pub async fn deposit_usdc_as_dot(
+    escrow_addr_str: &str,
+    rpc_url: &str,
+    provider_pk: &str,
+    usdc_amount: u64,
+    min_dot_internal_out: u64,
+    max_oracle_age_secs: u64,
+) -> Result<Option<String>> {
+    if usdc_amount == 0 {
+        warn!("deposit_usdc_as_dot called with zero amount; skipping");
+        return Ok(None);
+    }
+
+    let escrow_addr: Address = escrow_addr_str
+        .trim()
+        .parse()
+        .map_err(|e| anyhow::anyhow!("invalid escrow_contract address: {e}"))?;
+
+    if escrow_addr == Address::ZERO {
+        warn!("escrow_contract is zero address; skipping USDC deposit");
+        return Ok(None);
+    }
+
+    let pk = provider_pk.trim();
+    if pk.is_empty() {
+        warn!("settlement.evm_provider_wallet_private_key not configured; skipping USDC deposit");
+        return Ok(None);
+    }
+
+    let signer = signer_from_hex(pk)?;
+
+    let rpc_url_parsed = rpc_url
+        .trim()
+        .parse::<reqwest::Url>()
+        .context("invalid settlement.evm_rpc_url")?;
+
+    let provider = ProviderBuilder::new()
+        .wallet(signer)
+        .fetch_chain_id()
+        .connect_http(rpc_url_parsed);
+
+    let escrow = SettlementEscrow::new(escrow_addr, &provider);
+
+    let usdc_u256 = U256::from(usdc_amount);
+    let min_dot_u256 = U256::from(min_dot_internal_out);
+    let max_age_u256 = U256::from(max_oracle_age_secs);
+
+    info!(
+        usdc_amount = %usdc_amount,
+        min_dot_out = %min_dot_internal_out,
+        "depositing USDC as DOT via SettlementEscrow"
+    );
+
+    let pending = escrow
+        .depositUsdcAsDot_1(usdc_u256, min_dot_u256, max_age_u256)
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("depositUsdcAsDot_1 send failed: {e}"))?;
+
+    let tx_hash = pending
+        .with_required_confirmations(1)
+        .watch()
+        .await
+        .map_err(|e| anyhow::anyhow!("depositUsdcAsDot confirmation failed: {e}"))?;
+
+    info!(?tx_hash, "deposit_usdc_as_dot confirmed");
+
+    Ok(Some(tx_hash.to_string()))
+}
+
+/// Withdraw native DOT from the escrow contract.
+///
+/// Burns `amount_internal` from the caller's internal DOT balance and sends
+/// the corresponding native amount to the caller's address.
+///
+/// Returns the transaction hash on success, or `Ok(None)` on graceful degradation.
+pub async fn withdraw_dot(
+    escrow_addr_str: &str,
+    rpc_url: &str,
+    provider_pk: &str,
+    amount_internal: u64,
+) -> Result<Option<String>> {
+    if amount_internal == 0 {
+        warn!("withdraw_dot called with zero amount; skipping");
+        return Ok(None);
+    }
+
+    let escrow_addr: Address = escrow_addr_str
+        .trim()
+        .parse()
+        .map_err(|e| anyhow::anyhow!("invalid escrow_contract address: {e}"))?;
+
+    if escrow_addr == Address::ZERO {
+        warn!("escrow_contract is zero address; skipping withdraw");
+        return Ok(None);
+    }
+
+    let pk = provider_pk.trim();
+    if pk.is_empty() {
+        warn!("settlement.evm_provider_wallet_private_key not configured; skipping withdraw");
+        return Ok(None);
+    }
+
+    let signer = signer_from_hex(pk)?;
+
+    let rpc_url_parsed = rpc_url
+        .trim()
+        .parse::<reqwest::Url>()
+        .context("invalid settlement.evm_rpc_url")?;
+
+    let provider = ProviderBuilder::new()
+        .wallet(signer)
+        .fetch_chain_id()
+        .connect_http(rpc_url_parsed);
+
+    let escrow = SettlementEscrow::new(escrow_addr, &provider);
+
+    let amount_u256 = U256::from(amount_internal);
+
+    info!(
+        amount_internal = %amount_internal,
+        "withdrawing native DOT from SettlementEscrow"
+    );
+
+    let pending = escrow
+        .withdrawDot(amount_u256)
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("withdrawDot send failed: {e}"))?;
+
+    let tx_hash = pending
+        .with_required_confirmations(1)
+        .watch()
+        .await
+        .map_err(|e| anyhow::anyhow!("withdrawDot confirmation failed: {e}"))?;
+
+    info!(?tx_hash, "withdraw_dot confirmed");
+
+    Ok(Some(tx_hash.to_string()))
+}
+
+/// Withdraw provider earnings from the escrow contract.
+///
+/// Only callable by the registry owner (or settlement operator if configured).
+/// Burns `amount_internal` from the provider's internal DOT balance and sends
+/// the corresponding native amount to the provider's EVM address.
+///
+/// Returns the transaction hash on success, or `Ok(None)` on graceful degradation.
+pub async fn withdraw_provider_dot(
+    escrow_addr_str: &str,
+    rpc_url: &str,
+    operator_pk: &str,
+    node_id: [u8; 32],
+    amount_internal: u64,
+) -> Result<Option<String>> {
+    if amount_internal == 0 {
+        warn!("withdraw_provider_dot called with zero amount; skipping");
+        return Ok(None);
+    }
+
+    let escrow_addr: Address = escrow_addr_str
+        .trim()
+        .parse()
+        .map_err(|e| anyhow::anyhow!("invalid escrow_contract address: {e}"))?;
+
+    if escrow_addr == Address::ZERO {
+        warn!("escrow_contract is zero address; skipping provider withdraw");
+        return Ok(None);
+    }
+
+    let pk = operator_pk.trim();
+    if pk.is_empty() {
+        warn!("settlement.evm_settlement_operator_wallet_private_key not configured; skipping provider withdraw");
+        return Ok(None);
+    }
+
+    let signer = signer_from_hex(pk)?;
+
+    let rpc_url_parsed = rpc_url
+        .trim()
+        .parse::<reqwest::Url>()
+        .context("invalid settlement.evm_rpc_url")?;
+
+    let provider = ProviderBuilder::new()
+        .wallet(signer)
+        .fetch_chain_id()
+        .connect_http(rpc_url_parsed);
+
+    let escrow = SettlementEscrow::new(escrow_addr, &provider);
+
+    let amount_u256 = U256::from(amount_internal);
+
+    info!(
+        node_id = %hex::encode(node_id),
+        amount_internal = %amount_internal,
+        "withdrawing provider earnings from SettlementEscrow"
+    );
+
+    let pending = escrow
+        .withdrawProviderDot(node_id.into(), amount_u256)
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("withdrawProviderDot send failed: {e}"))?;
+
+    let tx_hash = pending
+        .with_required_confirmations(1)
+        .watch()
+        .await
+        .map_err(|e| anyhow::anyhow!("withdrawProviderDot confirmation failed: {e}"))?;
+
+    info!(?tx_hash, "withdraw_provider_dot confirmed");
+
+    Ok(Some(tx_hash.to_string()))
+}
