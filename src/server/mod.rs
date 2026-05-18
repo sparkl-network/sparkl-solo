@@ -19,6 +19,7 @@ pub mod identity;
 pub mod inference;
 pub mod models;
 pub mod receipts;
+pub mod settlement;
 pub mod tee;
 
 #[derive(Clone)]
@@ -44,6 +45,10 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/models", get(models::list_models))
         .route("/v1/chat/completions", post(inference::chat_completions))
         .route("/tee/verify", post(tee::verify_quote))
+        .route("/settlement/deposit-dot", post(settlement::deposit_dot))
+        .route("/settlement/deposit-usdc", post(settlement::deposit_usdc_as_dot))
+        .route("/settlement/withdraw-dot", post(settlement::withdraw_dot))
+        .route("/settlement/withdraw-provider", post(settlement::withdraw_provider))
         .with_state(state)
 }
 
