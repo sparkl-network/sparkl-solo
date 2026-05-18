@@ -45,6 +45,12 @@ pub struct ProviderInfo {
     pub tee_report_hash: String,
     pub metadata_uri: String,
     pub lifecycle: String,
+    #[serde(default)]
+    pub encryption_pubkey: String,
+    #[serde(default)]
+    pub encryption_key_version: u32,
+    #[serde(default)]
+    pub encryption_keys_last_version: u32,
 }
 
 /// Mirrors `NodeLifecycle` in `contracts/src/SecurityTypes.sol`.
@@ -173,6 +179,7 @@ pub async fn register(
                 true,
                 supports_tee,
                 metadata_uri,
+                B256::from_slice(&identity.x25519_pubkey),
             )
             .send()
             .await
@@ -342,6 +349,77 @@ pub async fn deregister(
     }
 }
 
+/// On-chain encryption key rotation + local `identity-secret.json` update (requires `evm-settlement`).
+#[allow(unused_variables)]
+pub async fn rotate_encryption_key(
+    identity: &NodeIdentity,
+    registry: &RegistryConfig,
+    settlement: &SettlementConfig,
+    grace_period_secs: u64,
+) -> Result<u32> {
+    if !registry.enabled {
+        return Err(anyhow!("registry disabled; cannot rotate encryption key on-chain"));
+    }
+
+    #[cfg(feature = "evm-settlement")]
+    {
+        let pk = settlement.evm_provider_wallet_private_key.trim();
+        if pk.is_empty() {
+            return Err(anyhow!(
+                "rotate_encryption_key requires settlement.evm_provider_wallet_private_key"
+            ));
+        }
+
+        let (next_ver, new_secret, pk_bytes) = crate::identity::prepare_encryption_rotation()?;
+        let new_pubkey = B256::from(pk_bytes);
+
+        let signer = parse_evm_signer(pk)?;
+        let registry_addr: Address = registry
+            .registry_contract_address
+            .trim()
+            .parse()
+            .map_err(|e| anyhow!("invalid registry_contract_address: {e}"))?;
+
+        let rpc_url = registry_rpc_url(registry, settlement)?;
+        let provider = ProviderBuilder::new()
+            .wallet(EthereumWallet::from(signer.clone()))
+            .fetch_chain_id()
+            .connect_http(rpc_url);
+        let instance = ProviderRegistry::new(registry_addr, &provider);
+        let node_id_b256 = B256::from(crate::identity::on_chain_node_id_from_identity(identity));
+
+        info!(
+            node_id = %hex::encode(node_id_b256.as_slice()),
+            next_ver,
+            grace_period_secs,
+            "rotating encryption key on ProviderRegistry"
+        );
+
+        let pending = instance
+            .rotateEncryptionKey(node_id_b256, new_pubkey, grace_period_secs)
+            .send()
+            .await
+            .map_err(|e| anyhow!("rotateEncryptionKey send failed: {e}"))?;
+
+        let _tx = pending
+            .with_required_confirmations(1)
+            .watch()
+            .await
+            .map_err(|e| anyhow!("rotateEncryptionKey confirmation failed: {e}"))?;
+
+        crate::identity::persist_encryption_key_rotation(next_ver, new_secret)?;
+        info!(next_ver, "encryption key rotation persisted locally");
+        Ok(next_ver)
+    }
+
+    #[cfg(not(feature = "evm-settlement"))]
+    {
+        Err(anyhow!(
+            "evm-settlement feature not enabled; cannot rotate encryption key on-chain"
+        ))
+    }
+}
+
 #[allow(unused_variables)]
 pub async fn get_peer_info(
     registry: &RegistryConfig,
@@ -391,6 +469,9 @@ pub async fn get_peer_info(
             tee_report_hash: hex::encode(result.teeReportHash.as_slice()),
             metadata_uri: result.metadataURI.to_string(),
             lifecycle: format!("{lifecycle}"),
+            encryption_pubkey: format!("{:#x}", result.encryptionPubkey),
+            encryption_key_version: result.encryptionKeyVersion,
+            encryption_keys_last_version: result.encryptionKeysLastVersion,
         }))
     }
 

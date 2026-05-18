@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {SecurityTier, NodeInfo, NodeLifecycle} from "./SecurityTypes.sol";
+import {SecurityTier, NodeInfo, NodeLifecycle, EncryptionKey} from "./SecurityTypes.sol";
 import {IProviderRegistry} from "./interfaces/IProviderRegistry.sol";
 import {ISettlementEscrowOpenSessions} from "./interfaces/ISettlementEscrowOpenSessions.sol";
 
@@ -18,6 +18,8 @@ contract ProviderRegistry is IProviderRegistry {
     mapping(address operator => bytes32[] nodeIds) internal _operatorNodes;
     mapping(bytes32 nodeId => mapping(SecurityTier tier => uint256 pricePer1k)) internal _pricePer1k;
 
+    mapping(bytes32 nodeId => mapping(uint32 version => EncryptionKey)) public encryptionKeys;
+
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
     event AttestationServiceUpdated(address indexed previous, address indexed next);
     event SettlementEscrowUpdated(address indexed previous, address indexed next);
@@ -31,6 +33,14 @@ contract ProviderRegistry is IProviderRegistry {
     event NodeChilled(bytes32 indexed nodeId, address indexed operator);
     event NodeMarkedDefunct(bytes32 indexed nodeId, address indexed operator);
     event NodePurged(bytes32 indexed nodeId, address indexed operator);
+    event EncryptionKeyRotated(
+        bytes32 indexed nodeId,
+        uint32 newVersion,
+        bytes32 newPubkey,
+        uint32 previousVersion,
+        uint64 gracePeriodEnd
+    );
+    event EncryptionKeyRevoked(bytes32 indexed nodeId, uint32 version);
 
     error NotOwner();
     error NotAttestationService();
@@ -43,6 +53,10 @@ contract ProviderRegistry is IProviderRegistry {
     error InvalidLifecycle();
     error EscrowNotConfigured();
     error OpenSessionsRemain();
+    error EncryptionKeyAlreadyRevoked();
+    error ZeroEncryptionPubkey();
+    error EncryptionKeyNotFound();
+    error GracePeriodTooLong();
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert NotOwner();
@@ -83,30 +97,112 @@ contract ProviderRegistry is IProviderRegistry {
     }
 
     /// @notice Register a node identity; caller becomes the operator. `payout == address(0)` defaults to `msg.sender`.
+    /// @param initialEncryptionPubkey Optional X25519 pubkey (`bytes32(0)` = opt-out). Non-zero installs version 1 on-chain.
     function registerNode(
         bytes32 nodeId,
         address payout,
         bool supportsBestEffort,
         bool supportsTEE,
-        string calldata metadataURI
+        string calldata metadataURI,
+        bytes32 initialEncryptionPubkey
     ) external {
         if (nodeId == bytes32(0)) revert ZeroNodeId();
         if (nodeOperator[nodeId] != address(0)) revert NodeAlreadyRegistered();
 
         nodeOperator[nodeId] = msg.sender;
         _operatorNodes[msg.sender].push(nodeId);
-        nodes[nodeId] = NodeInfo({
-            payout: payout == address(0) ? msg.sender : payout,
-            feeBps: 0,
-            active: true,
-            supportsBestEffort: supportsBestEffort,
-            supportsTEE: supportsTEE,
-            teeReportHash: bytes32(0),
-            metadataURI: metadataURI,
-            lifecycle: NodeLifecycle.Active
-        });
+
+        if (initialEncryptionPubkey != bytes32(0)) {
+            encryptionKeys[nodeId][1] = EncryptionKey({
+                pubkey: initialEncryptionPubkey,
+                activatedAt: uint64(block.timestamp),
+                deprecatedAt: 0,
+                revoked: false
+            });
+            nodes[nodeId] = NodeInfo({
+                payout: payout == address(0) ? msg.sender : payout,
+                feeBps: 0,
+                active: true,
+                supportsBestEffort: supportsBestEffort,
+                supportsTEE: supportsTEE,
+                teeReportHash: bytes32(0),
+                metadataURI: metadataURI,
+                lifecycle: NodeLifecycle.Active,
+                encryptionPubkey: initialEncryptionPubkey,
+                encryptionKeyVersion: 1,
+                encryptionKeysLastVersion: 1
+            });
+        } else {
+            nodes[nodeId] = NodeInfo({
+                payout: payout == address(0) ? msg.sender : payout,
+                feeBps: 0,
+                active: true,
+                supportsBestEffort: supportsBestEffort,
+                supportsTEE: supportsTEE,
+                teeReportHash: bytes32(0),
+                metadataURI: metadataURI,
+                lifecycle: NodeLifecycle.Active,
+                encryptionPubkey: bytes32(0),
+                encryptionKeyVersion: 0,
+                encryptionKeysLastVersion: 0
+            });
+        }
 
         emit NodeRegistered(nodeId, msg.sender, metadataURI);
+    }
+
+    /// @notice Replace the active encryption key; previous key remains valid for verification until `gracePeriodSecs` elapse.
+    function rotateEncryptionKey(bytes32 nodeId, bytes32 newPubkey, uint64 gracePeriodSecs)
+        external
+        onlyNodeOperator(nodeId)
+    {
+        if (nodeOperator[nodeId] == address(0)) revert NodeNotRegistered();
+        if (newPubkey == bytes32(0)) revert ZeroEncryptionPubkey();
+
+        NodeInfo storage n = nodes[nodeId];
+        uint32 cur = n.encryptionKeyVersion;
+        uint32 last = n.encryptionKeysLastVersion;
+        uint32 newVer = last + 1;
+
+        uint64 graceEnd = uint64(block.timestamp);
+        if (cur > 0) {
+            uint256 dep = uint256(block.timestamp) + uint256(gracePeriodSecs);
+            if (dep > type(uint64).max) revert GracePeriodTooLong();
+            graceEnd = uint64(dep);
+            encryptionKeys[nodeId][cur].deprecatedAt = graceEnd;
+            emit EncryptionKeyRotated(nodeId, newVer, newPubkey, cur, graceEnd);
+        } else {
+            emit EncryptionKeyRotated(nodeId, newVer, newPubkey, 0, graceEnd);
+        }
+
+        encryptionKeys[nodeId][newVer] = EncryptionKey({
+            pubkey: newPubkey,
+            activatedAt: uint64(block.timestamp),
+            deprecatedAt: 0,
+            revoked: false
+        });
+
+        n.encryptionPubkey = newPubkey;
+        n.encryptionKeyVersion = newVer;
+        n.encryptionKeysLastVersion = newVer;
+    }
+
+    /// @notice Mark a key version as unusable; if revoking the active version, headline pubkey is cleared (current = 0).
+    function revokeEncryptionKey(bytes32 nodeId, uint32 version) external onlyNodeOperator(nodeId) {
+        if (nodeOperator[nodeId] == address(0)) revert NodeNotRegistered();
+
+        EncryptionKey storage k = encryptionKeys[nodeId][version];
+        if (k.pubkey == bytes32(0) && k.activatedAt == 0) revert EncryptionKeyNotFound();
+        if (k.revoked) revert EncryptionKeyAlreadyRevoked();
+
+        k.revoked = true;
+        emit EncryptionKeyRevoked(nodeId, version);
+
+        NodeInfo storage n = nodes[nodeId];
+        if (n.encryptionKeyVersion == version) {
+            n.encryptionPubkey = bytes32(0);
+            n.encryptionKeyVersion = 0;
+        }
     }
 
     /// @notice Active → Chilled: stops new sessions (`supportsTier`). Existing escrow sessions may still settle.
@@ -138,9 +234,13 @@ contract ProviderRegistry is IProviderRegistry {
         NodeInfo storage n = nodes[nodeId];
         if (n.lifecycle != NodeLifecycle.Defunct) revert InvalidLifecycle();
         address op = nodeOperator[nodeId];
+        uint32 lastVer = n.encryptionKeysLastVersion;
         _removeOperatorNode(op, nodeId);
         _pricePer1k[nodeId][SecurityTier.BEST_EFFORT] = 0;
         _pricePer1k[nodeId][SecurityTier.TEE_VERIFIED] = 0;
+        for (uint32 v = 1; v <= lastVer; v++) {
+            delete encryptionKeys[nodeId][v];
+        }
         delete nodes[nodeId];
         nodeOperator[nodeId] = address(0);
         emit NodePurged(nodeId, op);

@@ -1,3 +1,4 @@
+use std::fs;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -15,6 +16,8 @@ use rand::RngCore;
 use reqwest::Client;
 use serde_json::{json, Value};
 use serial_test::serial;
+use serde::Serialize;
+use ed25519_dalek::SigningKey;
 use sparkl_solo::config::{
     AttestationConfig, BackendConfig, Config, NetworkConfig, NodeConfig, NodeMode, PricingConfig,
     RegistryConfig, SettlementConfig,
@@ -274,6 +277,11 @@ async fn identity_exposes_trust_anchor_fields() {
     assert_eq!(
         body.get("x25519_pubkey").and_then(Value::as_str),
         Some(expected_x_pk.as_str())
+    );
+    assert_eq!(
+        body.get("encryption_key_version").and_then(Value::as_u64),
+        Some(1),
+        "new identities use derived x25519 version 1"
     );
     assert_eq!(
         body.get("version").and_then(Value::as_str),
@@ -803,4 +811,225 @@ async fn recovers_active_sessions_after_restart() {
     let recovered = sessions_after.get(session_id).expect("session recovered");
     assert_eq!(recovered.model, "mock-model");
     assert_eq!(recovered.tokens_output, 5);
+}
+
+#[derive(Serialize)]
+struct LegacySecretFixture {
+    x25519_secret: [u8; 32],
+    ed25519_secret: [u8; 32],
+    x25519_version: u32,
+}
+
+#[tokio::test]
+#[serial]
+async fn encrypted_chat_honors_encryption_key_version_field() {
+    let backend = Router::new()
+        .route("/health", get(backend_health))
+        .route("/v1/models", get(backend_models))
+        .route("/v1/chat/completions", post(backend_chat));
+    let backend_addr = spawn(backend).await;
+
+    let temp_dir = TempDir::new().expect("tempdir");
+    let cfg = test_config(backend_addr, &temp_dir);
+
+    let identity = identity::load_or_generate(&cfg).await.expect("identity");
+    assert_eq!(identity::current_encryption_key_version().unwrap(), 1);
+    let store = Arc::new(Store::open(&cfg.node.data_dir).expect("store"));
+    let sessions = Arc::new(SessionManager::new(store));
+    let proxy = Arc::new(BackendProxy::new(&cfg.backend).expect("proxy"));
+
+    let app_state = AppState {
+        config: cfg.clone(),
+        identity: identity.clone(),
+        proxy,
+        sessions,
+        swarm_cmd: None,
+        started_at: Utc::now(),
+    };
+    let node_addr = spawn(server::router(app_state)).await;
+
+    let plaintext = json!({
+        "model": "mock-model",
+        "messages": [{"role":"user","content":"ping"}],
+        "stream": true
+    });
+    let plaintext_bytes = serde_json::to_vec(&plaintext).expect("serialize plaintext");
+
+    let mut secret_bytes = [0u8; 32];
+    rand::rngs::OsRng.fill_bytes(&mut secret_bytes);
+    let ephemeral_secret = SecretKey::from(secret_bytes);
+    let ephemeral_public = ephemeral_secret.public_key().to_bytes();
+    let node_public = CryptoPublicKey::from(identity.x25519_pubkey);
+    let box_cipher = SalsaBox::new(&node_public, &ephemeral_secret);
+
+    let mut nonce_bytes = [0u8; 24];
+    rand::rngs::OsRng.fill_bytes(&mut nonce_bytes);
+    let nonce = crypto_box::Nonce::from_slice(&nonce_bytes);
+    let encrypted = box_cipher
+        .encrypt(nonce, plaintext_bytes.as_ref())
+        .expect("encrypt");
+    let mut wire_ciphertext = nonce_bytes.to_vec();
+    wire_ciphertext.extend_from_slice(&encrypted);
+
+    let request_body = json!({
+        "encrypted": true,
+        "encryption_key_version": 1,
+        "epk": base64::engine::general_purpose::STANDARD.encode(ephemeral_public),
+        "ciphertext": base64::engine::general_purpose::STANDARD.encode(wire_ciphertext)
+    });
+
+    let client = Client::new();
+    let resp = client
+        .post(format!("http://{}/v1/chat/completions", node_addr))
+        .json(&request_body)
+        .send()
+        .await
+        .expect("send");
+
+    assert_receipts_present(resp).await;
+}
+
+#[tokio::test]
+#[serial]
+async fn legacy_v0_encrypted_request_decrypts() {
+    let backend = Router::new()
+        .route("/health", get(backend_health))
+        .route("/v1/models", get(backend_models))
+        .route("/v1/chat/completions", post(backend_chat));
+    let backend_addr = spawn(backend).await;
+
+    let temp_dir = TempDir::new().expect("tempdir");
+    let data_dir = temp_dir.path().join("data");
+    fs::create_dir_all(&data_dir).expect("mkdir data");
+
+    let mut x25519_secret = [0u8; 32];
+    let mut ed25519_secret = [0u8; 32];
+    rand::rngs::OsRng.fill_bytes(&mut x25519_secret);
+    rand::rngs::OsRng.fill_bytes(&mut ed25519_secret);
+
+    let x_public = SecretKey::from(x25519_secret).public_key().to_bytes();
+    let signing = SigningKey::from_bytes(&ed25519_secret);
+    let ed_pub = signing.verifying_key().to_bytes();
+
+    let public = NodeIdentity {
+        peer_id: format!("mock-{}", hex::encode(&x_public[..8])),
+        x25519_pubkey: x_public,
+        ed25519_pubkey: ed_pub,
+    };
+
+    fs::write(
+        data_dir.join("identity.json"),
+        serde_json::to_vec_pretty(&public).expect("identity json"),
+    )
+    .expect("write identity");
+    fs::write(
+        data_dir.join("identity-secret.json"),
+        serde_json::to_vec_pretty(&LegacySecretFixture {
+            x25519_secret,
+            ed25519_secret,
+            x25519_version: 0,
+        })
+        .expect("secret json"),
+    )
+    .expect("write secret");
+
+    let cfg = test_config(backend_addr, &temp_dir);
+    let identity = identity::load_or_generate(&cfg).await.expect("load legacy v0");
+    assert_eq!(identity.x25519_pubkey, x_public);
+    assert_eq!(identity::current_encryption_key_version().unwrap(), 0);
+
+    let store = Arc::new(Store::open(&cfg.node.data_dir).expect("store"));
+    let sessions = Arc::new(SessionManager::new(store));
+    let proxy = Arc::new(BackendProxy::new(&cfg.backend).expect("proxy"));
+
+    let app_state = AppState {
+        config: cfg.clone(),
+        identity: identity.clone(),
+        proxy,
+        sessions,
+        swarm_cmd: None,
+        started_at: Utc::now(),
+    };
+    let node_addr = spawn(server::router(app_state)).await;
+
+    let plaintext = json!({
+        "model": "mock-model",
+        "messages": [{"role":"user","content":"ping"}],
+        "stream": true
+    });
+    let plaintext_bytes = serde_json::to_vec(&plaintext).expect("serialize plaintext");
+
+    let mut secret_bytes = [0u8; 32];
+    rand::rngs::OsRng.fill_bytes(&mut secret_bytes);
+    let ephemeral_secret = SecretKey::from(secret_bytes);
+    let ephemeral_public = ephemeral_secret.public_key().to_bytes();
+    let node_public = CryptoPublicKey::from(identity.x25519_pubkey);
+    let box_cipher = SalsaBox::new(&node_public, &ephemeral_secret);
+
+    let mut nonce_bytes = [0u8; 24];
+    rand::rngs::OsRng.fill_bytes(&mut nonce_bytes);
+    let nonce = crypto_box::Nonce::from_slice(&nonce_bytes);
+    let encrypted = box_cipher
+        .encrypt(nonce, plaintext_bytes.as_ref())
+        .expect("encrypt");
+    let mut wire_ciphertext = nonce_bytes.to_vec();
+    wire_ciphertext.extend_from_slice(&encrypted);
+
+    let request_body = json!({
+        "encrypted": true,
+        "encryption_key_version": 0,
+        "epk": base64::engine::general_purpose::STANDARD.encode(ephemeral_public),
+        "ciphertext": base64::engine::general_purpose::STANDARD.encode(wire_ciphertext)
+    });
+
+    let client = Client::new();
+    let resp = client
+        .post(format!("http://{}/v1/chat/completions", node_addr))
+        .json(&request_body)
+        .send()
+        .await
+        .expect("send");
+
+    assert_receipts_present(resp).await;
+}
+
+#[tokio::test]
+#[serial]
+async fn persist_encryption_key_rotation_bumps_version() {
+    let backend = Router::new()
+        .route("/health", get(backend_health))
+        .route("/v1/models", get(backend_models))
+        .route("/v1/chat/completions", post(backend_chat));
+    let backend_addr = spawn(backend).await;
+    let temp_dir = TempDir::new().expect("tempdir");
+    let cfg = test_config(backend_addr, &temp_dir);
+
+    identity::load_or_generate(&cfg).await.expect("identity");
+    assert_eq!(identity::current_encryption_key_version().unwrap(), 1);
+
+    let (next, sec, pk) = identity::prepare_encryption_rotation().expect("prepare");
+    assert_eq!(next, 2);
+    identity::persist_encryption_key_rotation(next, sec).expect("persist");
+    assert_eq!(identity::current_encryption_key_version().unwrap(), 2);
+    assert_eq!(identity::current_encryption_pubkey().unwrap(), pk);
+}
+
+#[tokio::test]
+#[serial]
+async fn persist_rejects_mismatched_secret() {
+    let backend = Router::new()
+        .route("/health", get(backend_health))
+        .route("/v1/models", get(backend_models))
+        .route("/v1/chat/completions", post(backend_chat));
+    let backend_addr = spawn(backend).await;
+    let temp_dir = TempDir::new().expect("tempdir");
+    let cfg = test_config(backend_addr, &temp_dir);
+
+    identity::load_or_generate(&cfg).await.expect("identity");
+    let err = identity::persist_encryption_key_rotation(2, [99u8; 32]).unwrap_err();
+    let s = err.to_string();
+    assert!(
+        s.contains("does not match") || s.contains("deterministic"),
+        "unexpected error: {s}"
+    );
 }

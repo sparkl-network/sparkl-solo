@@ -46,7 +46,7 @@ contract SettlementEscrowTest is Test {
         reg.setSettlementEscrow(address(esc));
 
         vm.prank(providerA);
-        reg.registerNode(_nid(providerA), payout, true, true, "");
+        reg.registerNode(_nid(providerA), payout, true, true, "", bytes32(0));
         vm.prank(attestation);
         reg.setTEEProof(_nid(providerA), bytes32(uint256(0xbeef)));
 
@@ -204,7 +204,7 @@ contract SettlementEscrowTest is Test {
     function test_openSession_fromBalance_bestEffort() public {
         address providerB = address(0xB0B2);
         vm.prank(providerB);
-        reg.registerNode(_nid(providerB), payout, true, false, "");
+        reg.registerNode(_nid(providerB), payout, true, false, "", bytes32(0));
 
         uint256 nativeIn = 5 * 10 ** 10;
         vm.prank(alice);
@@ -326,7 +326,7 @@ contract SettlementEscrowTest is Test {
     function test_openSession_revert_unsupportedTier() public {
         address providerB = address(0xB0B2);
         vm.prank(providerB);
-        reg.registerNode(_nid(providerB), payout, true, false, "");
+        reg.registerNode(_nid(providerB), payout, true, false, "", bytes32(0));
 
         uint256 amountInternal = 1 * 10 ** 18;
         vm.prank(alice);
@@ -337,7 +337,7 @@ contract SettlementEscrowTest is Test {
     function test_tieredProvider_teeSessionRequiresAttestation() public {
         address hybrid = address(0xBEEF11);
         vm.prank(hybrid);
-        reg.registerNode(_nid(hybrid), payout, true, false, "");
+        reg.registerNode(_nid(hybrid), payout, true, false, "", bytes32(0));
 
         uint256 amt = 1 ether;
         vm.prank(alice);
@@ -365,7 +365,7 @@ contract SettlementEscrowTest is Test {
     function test_requestedTeeDoesNotExposeTierUntilProof() public {
         address newbie = address(0xC001);
         vm.prank(newbie);
-        reg.registerNode(_nid(newbie), payout, true, true, "");
+        reg.registerNode(_nid(newbie), payout, true, true, "", bytes32(0));
 
         NodeInfo memory p = reg.getProvider(_nid(newbie));
         assertTrue(p.supportsTEE);
@@ -480,13 +480,13 @@ contract SettlementEscrowTest is Test {
     function test_bestEffortVsTee_providersStayPartitionedOnRegistry() public {
         address bee = address(0xBEE1);
         vm.prank(bee);
-        reg.registerNode(_nid(bee), payout, true, false, "");
+        reg.registerNode(_nid(bee), payout, true, false, "", bytes32(0));
         vm.prank(attestation);
         reg.setTEEProof(_nid(bee), bytes32(uint256(0xbaa)));
 
         address teeExclusive = address(0xABC2);
         vm.prank(teeExclusive);
-        reg.registerNode(_nid(teeExclusive), payout, false, true, "");
+        reg.registerNode(_nid(teeExclusive), payout, false, true, "", bytes32(0));
 
         vm.prank(attestation);
         reg.setTEEProof(_nid(teeExclusive), bytes32(uint256(0xabc)));

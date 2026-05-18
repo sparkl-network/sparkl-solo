@@ -48,12 +48,12 @@ contract SettlementEscrowInvariantHandler is Test {
         provider1 = p1;
 
         vm.prank(p0);
-        reg.registerNode(_nid(p0), payoutAddr, true, true, "");
+        reg.registerNode(_nid(p0), payoutAddr, true, true, "", bytes32(0));
         vm.prank(attestation_);
         reg.setTEEProof(_nid(p0), bytes32(uint256(0xA11CE)));
 
         vm.prank(p1);
-        reg.registerNode(_nid(p1), payoutAddr, true, true, "");
+        reg.registerNode(_nid(p1), payoutAddr, true, true, "", bytes32(0));
         vm.prank(attestation_);
         reg.setTEEProof(_nid(p1), bytes32(uint256(0xB22CE)));
 

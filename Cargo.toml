@@ -47,6 +47,7 @@ tpm = []
 evm-settlement = ["dep:alloy"]
 
 [dev-dependencies]
+ed25519-dalek = { version = "2", features = ["rand_core"] }
 hex = "0.4"
 tempfile = "3"
 serial_test = "3"

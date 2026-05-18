@@ -40,7 +40,7 @@ contract ProviderRegistryTest is Test {
     function test_registerNode_setNodePricing_metadata() public {
         bytes32 nodeId = _nid(nodeAddr);
         vm.startPrank(operator);
-        reg.registerNode(nodeId, payout, true, true, "ipfs://meta");
+        reg.registerNode(nodeId, payout, true, true, "ipfs://meta", bytes32(0));
         vm.stopPrank();
 
         assertEq(reg.nodeOperator(nodeId), operator);
@@ -70,20 +70,20 @@ contract ProviderRegistryTest is Test {
     function test_registerNode_zeroPayout_defaultsToOperator() public {
         bytes32 nodeId = _nid(nodeAddr);
         vm.prank(operator);
-        reg.registerNode(nodeId, address(0), true, false, "");
+        reg.registerNode(nodeId, address(0), true, false, "", bytes32(0));
         assertEq(reg.getProvider(nodeId).payout, operator);
     }
 
     function test_registerNode_revert_zeroId() public {
         vm.prank(operator);
         vm.expectRevert(ProviderRegistry.ZeroNodeId.selector);
-        reg.registerNode(bytes32(0), payout, true, false, "");
+        reg.registerNode(bytes32(0), payout, true, false, "", bytes32(0));
     }
 
     function test_supportsTier_bestEffort_inactive() public {
         bytes32 nodeId = _nid(nodeAddr);
         vm.prank(operator);
-        reg.registerNode(nodeId, payout, true, false, "");
+        reg.registerNode(nodeId, payout, true, false, "", bytes32(0));
         assertTrue(reg.supportsTier(nodeId, SecurityTier.BEST_EFFORT));
 
         vm.prank(operator);
@@ -94,14 +94,14 @@ contract ProviderRegistryTest is Test {
     function test_supportsTier_bestEffort_falseWhenNotSupported() public {
         bytes32 nodeId = _nid(nodeAddr);
         vm.prank(operator);
-        reg.registerNode(nodeId, payout, false, false, "");
+        reg.registerNode(nodeId, payout, false, false, "", bytes32(0));
         assertFalse(reg.supportsTier(nodeId, SecurityTier.BEST_EFFORT));
     }
 
     function test_supportsTier_teeOnlyNode_rejectsBestEffort() public {
         bytes32 teeOnly = _nid(address(0xC0DE2));
         vm.prank(operator);
-        reg.registerNode(teeOnly, payout, false, true, "");
+        reg.registerNode(teeOnly, payout, false, true, "", bytes32(0));
         vm.prank(attestation);
         reg.setTEEProof(teeOnly, bytes32(uint256(0x99)));
 
@@ -112,7 +112,7 @@ contract ProviderRegistryTest is Test {
     function test_supportsTier_teeDeclaredButNeedsProofForTier() public {
         bytes32 nodeId = _nid(nodeAddr);
         vm.prank(operator);
-        reg.registerNode(nodeId, payout, true, true, "");
+        reg.registerNode(nodeId, payout, true, true, "", bytes32(0));
         assertFalse(reg.supportsTier(nodeId, SecurityTier.TEE_VERIFIED));
 
         vm.prank(attestation);
@@ -127,7 +127,7 @@ contract ProviderRegistryTest is Test {
     function test_setTEEProof_revert_notAttestation() public {
         bytes32 nodeId = _nid(nodeAddr);
         vm.prank(operator);
-        reg.registerNode(nodeId, payout, true, false, "");
+        reg.registerNode(nodeId, payout, true, false, "", bytes32(0));
 
         vm.prank(address(0xDEAD));
         vm.expectRevert(ProviderRegistry.NotAttestationService.selector);
@@ -137,7 +137,7 @@ contract ProviderRegistryTest is Test {
     function test_setTEEProof_revert_zeroHash() public {
         bytes32 nodeId = _nid(nodeAddr);
         vm.prank(operator);
-        reg.registerNode(nodeId, payout, true, false, "");
+        reg.registerNode(nodeId, payout, true, false, "", bytes32(0));
 
         vm.prank(attestation);
         vm.expectRevert(ProviderRegistry.InvalidTEEProof.selector);
@@ -153,7 +153,7 @@ contract ProviderRegistryTest is Test {
     function test_setNodePayout_and_fee() public {
         bytes32 nodeId = _nid(nodeAddr);
         vm.prank(operator);
-        reg.registerNode(nodeId, payout, true, false, "");
+        reg.registerNode(nodeId, payout, true, false, "", bytes32(0));
 
         address p2 = address(0x1111);
         vm.prank(operator);
@@ -168,7 +168,7 @@ contract ProviderRegistryTest is Test {
     function test_setNodeFee_revert_notOwner() public {
         bytes32 nodeId = _nid(nodeAddr);
         vm.prank(operator);
-        reg.registerNode(nodeId, payout, true, false, "");
+        reg.registerNode(nodeId, payout, true, false, "", bytes32(0));
 
         vm.prank(operator);
         vm.expectRevert(ProviderRegistry.NotOwner.selector);
@@ -178,7 +178,7 @@ contract ProviderRegistryTest is Test {
     function test_onlyNodeOperator_revert() public {
         bytes32 nodeId = _nid(nodeAddr);
         vm.prank(operator);
-        reg.registerNode(nodeId, payout, true, false, "");
+        reg.registerNode(nodeId, payout, true, false, "", bytes32(0));
 
         vm.prank(address(0xBAD));
         vm.expectRevert(ProviderRegistry.NotNodeOperator.selector);
@@ -188,16 +188,16 @@ contract ProviderRegistryTest is Test {
     function test_registerNode_revert_twice() public {
         bytes32 nodeId = _nid(nodeAddr);
         vm.startPrank(operator);
-        reg.registerNode(nodeId, payout, true, false, "");
+        reg.registerNode(nodeId, payout, true, false, "", bytes32(0));
         vm.expectRevert(ProviderRegistry.NodeAlreadyRegistered.selector);
-        reg.registerNode(nodeId, payout, true, false, "");
+        reg.registerNode(nodeId, payout, true, false, "", bytes32(0));
         vm.stopPrank();
     }
 
     function test_supportsTier_false_when_chilled() public {
         bytes32 nodeId = _nid(nodeAddr);
         vm.prank(operator);
-        reg.registerNode(nodeId, payout, true, false, "");
+        reg.registerNode(nodeId, payout, true, false, "", bytes32(0));
         assertTrue(reg.supportsTier(nodeId, SecurityTier.BEST_EFFORT));
 
         vm.prank(operator);
@@ -210,7 +210,7 @@ contract ProviderRegistryTest is Test {
     function test_chillNode_revert_notActive() public {
         bytes32 nodeId = _nid(nodeAddr);
         vm.startPrank(operator);
-        reg.registerNode(nodeId, payout, true, false, "");
+        reg.registerNode(nodeId, payout, true, false, "", bytes32(0));
         reg.chillNode(nodeId);
         vm.expectRevert(ProviderRegistry.InvalidLifecycle.selector);
         reg.chillNode(nodeId);
@@ -220,7 +220,7 @@ contract ProviderRegistryTest is Test {
     function test_markDefunct_revert_escrow_not_configured() public {
         bytes32 nodeId = _nid(nodeAddr);
         vm.startPrank(operator);
-        reg.registerNode(nodeId, payout, true, false, "");
+        reg.registerNode(nodeId, payout, true, false, "", bytes32(0));
         reg.chillNode(nodeId);
         vm.expectRevert(ProviderRegistry.EscrowNotConfigured.selector);
         reg.markDefunct(nodeId);
@@ -234,7 +234,7 @@ contract ProviderRegistryTest is Test {
 
         bytes32 nodeId = _nid(nodeAddr);
         vm.startPrank(operator);
-        reg.registerNode(nodeId, payout, true, false, "");
+        reg.registerNode(nodeId, payout, true, false, "", bytes32(0));
         reg.chillNode(nodeId);
         mockEsc.setOpenCount(nodeId, 1);
         vm.expectRevert(ProviderRegistry.OpenSessionsRemain.selector);
@@ -249,7 +249,7 @@ contract ProviderRegistryTest is Test {
 
         bytes32 nodeId = _nid(nodeAddr);
         vm.startPrank(operator);
-        reg.registerNode(nodeId, payout, true, false, "");
+        reg.registerNode(nodeId, payout, true, false, "", bytes32(0));
         reg.setNodePricing(nodeId, SecurityTier.BEST_EFFORT, 99);
         reg.chillNode(nodeId);
         mockEsc.setOpenCount(nodeId, 0);
@@ -269,7 +269,7 @@ contract ProviderRegistryTest is Test {
         assertEq(n.payout, address(0));
 
         vm.prank(operator);
-        reg.registerNode(nodeId, payout, true, false, "meta2");
+        reg.registerNode(nodeId, payout, true, false, "meta2", bytes32(0));
         assertEq(reg.nodeOperator(nodeId), operator);
     }
 
@@ -280,7 +280,7 @@ contract ProviderRegistryTest is Test {
 
         bytes32 nodeId = _nid(nodeAddr);
         vm.startPrank(operator);
-        reg.registerNode(nodeId, payout, true, false, "");
+        reg.registerNode(nodeId, payout, true, false, "", bytes32(0));
         reg.chillNode(nodeId);
         reg.markDefunct(nodeId);
         vm.stopPrank();
@@ -300,5 +300,120 @@ contract ProviderRegistryTest is Test {
         vm.prank(next);
         reg.setAttestationService(nextAtt);
         assertEq(reg.attestationService(), nextAtt);
+    }
+
+    function test_registerNode_initialEncryptionKey() public {
+        bytes32 nodeId = _nid(nodeAddr);
+        bytes32 pk = bytes32(uint256(0x112233));
+        vm.prank(operator);
+        reg.registerNode(nodeId, payout, true, true, "", pk);
+        NodeInfo memory n = reg.getProvider(nodeId);
+        assertEq(n.encryptionPubkey, pk);
+        assertEq(n.encryptionKeyVersion, 1);
+        assertEq(n.encryptionKeysLastVersion, 1);
+        (bytes32 epk, uint64 act, uint64 dep, bool rev) = reg.encryptionKeys(nodeId, 1);
+        assertEq(epk, pk);
+        assertGt(act, 0);
+        assertEq(dep, 0);
+        assertFalse(rev);
+    }
+
+    function test_rotateEncryptionKey_deprecatesPrevious() public {
+        bytes32 nodeId = _nid(nodeAddr);
+        bytes32 pk1 = bytes32(uint256(1));
+        vm.startPrank(operator);
+        reg.registerNode(nodeId, payout, true, true, "", pk1);
+        bytes32 pk2 = bytes32(uint256(2));
+        reg.rotateEncryptionKey(nodeId, pk2, 3600);
+        vm.stopPrank();
+
+        NodeInfo memory n = reg.getProvider(nodeId);
+        assertEq(n.encryptionKeyVersion, 2);
+        assertEq(n.encryptionPubkey, pk2);
+        (, , uint64 dep1, ) = reg.encryptionKeys(nodeId, 1);
+        assertEq(dep1, uint64(block.timestamp + 3600));
+        (bytes32 ep2, , , bool r2) = reg.encryptionKeys(nodeId, 2);
+        assertEq(ep2, pk2);
+        assertFalse(r2);
+    }
+
+    function test_revokeEncryptionKey_clearsHeadline() public {
+        bytes32 nodeId = _nid(nodeAddr);
+        bytes32 pk1 = bytes32(uint256(1));
+        vm.startPrank(operator);
+        reg.registerNode(nodeId, payout, true, true, "", pk1);
+        reg.revokeEncryptionKey(nodeId, 1);
+        vm.stopPrank();
+
+        NodeInfo memory n = reg.getProvider(nodeId);
+        assertEq(n.encryptionKeyVersion, 0);
+        assertEq(n.encryptionPubkey, bytes32(0));
+        (, , , bool r1) = reg.encryptionKeys(nodeId, 1);
+        assertTrue(r1);
+
+        vm.prank(operator);
+        vm.expectRevert(ProviderRegistry.EncryptionKeyAlreadyRevoked.selector);
+        reg.revokeEncryptionKey(nodeId, 1);
+    }
+
+    function test_revokeEncryptionKey_revertsNotFound() public {
+        bytes32 nodeId = _nid(nodeAddr);
+        vm.startPrank(operator);
+        reg.registerNode(nodeId, payout, true, false, "", bytes32(0));
+        vm.expectRevert(ProviderRegistry.EncryptionKeyNotFound.selector);
+        reg.revokeEncryptionKey(nodeId, 1);
+        vm.stopPrank();
+    }
+
+    function test_rotateEncryptionKey_revert_zeroPubkey() public {
+        bytes32 nodeId = _nid(nodeAddr);
+        vm.startPrank(operator);
+        reg.registerNode(nodeId, payout, true, true, "", bytes32(uint256(1)));
+        vm.expectRevert(ProviderRegistry.ZeroEncryptionPubkey.selector);
+        reg.rotateEncryptionKey(nodeId, bytes32(0), 0);
+        vm.stopPrank();
+    }
+
+    function test_rotateEncryptionKey_whenNoInitialKey_createsVersion1() public {
+        bytes32 nodeId = _nid(nodeAddr);
+        bytes32 pk = bytes32(uint256(0xabc));
+        vm.startPrank(operator);
+        reg.registerNode(nodeId, payout, true, true, "", bytes32(0));
+        NodeInfo memory n0 = reg.getProvider(nodeId);
+        assertEq(n0.encryptionKeyVersion, 0);
+        reg.rotateEncryptionKey(nodeId, pk, 60);
+        vm.stopPrank();
+
+        NodeInfo memory n = reg.getProvider(nodeId);
+        assertEq(n.encryptionKeyVersion, 1);
+        assertEq(n.encryptionPubkey, pk);
+        assertEq(n.encryptionKeysLastVersion, 1);
+        (bytes32 epk, uint64 act, uint64 dep, bool rev) = reg.encryptionKeys(nodeId, 1);
+        assertEq(epk, pk);
+        assertGt(act, 0);
+        assertEq(dep, 0);
+        assertFalse(rev);
+    }
+
+    function test_purgeDefunctNode_clearsEncryptionKeySlots() public {
+        MockEscrowOpenCounts mockEsc = new MockEscrowOpenCounts();
+        vm.prank(owner);
+        reg.setSettlementEscrow(address(mockEsc));
+
+        bytes32 nodeId = _nid(nodeAddr);
+        bytes32 pk = bytes32(uint256(0x99));
+        vm.startPrank(operator);
+        reg.registerNode(nodeId, payout, true, false, "", pk);
+        reg.chillNode(nodeId);
+        mockEsc.setOpenCount(nodeId, 0);
+        reg.markDefunct(nodeId);
+        vm.stopPrank();
+
+        vm.prank(owner);
+        reg.purgeDefunctNode(nodeId);
+
+        (bytes32 epk, uint64 act,, ) = reg.encryptionKeys(nodeId, 1);
+        assertEq(epk, bytes32(0));
+        assertEq(act, 0);
     }
 }

@@ -23,4 +23,18 @@ struct NodeInfo {
     bytes32 teeReportHash;
     string metadataURI;
     NodeLifecycle lifecycle;
+    /// @dev Raw X25519 public key (32 bytes) for ConsumerKey-style encryption; zero = not advertised.
+    bytes32 encryptionPubkey;
+    /// @dev Currently active encryption key version, or 0 if none.
+    uint32 encryptionKeyVersion;
+    /// @dev Highest version index ever issued; bounds `purgeDefunctNode` cleanup of `encryptionKeys`.
+    uint32 encryptionKeysLastVersion;
+}
+
+/// @notice Versioned encryption key material for a node (`encryptionKeys[nodeId][version]`).
+struct EncryptionKey {
+    bytes32 pubkey;
+    uint64 activatedAt;
+    uint64 deprecatedAt;
+    bool revoked;
 }

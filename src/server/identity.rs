@@ -116,6 +116,10 @@ pub async fn identity(State(state): State<AppState>) -> Response {
         "node_id": node_id_hex,
         "ed25519_pubkey": hex::encode(ed25519_pubkey_bytes),
         "x25519_pubkey": hex::encode(node_identity.x25519_pubkey),
+        "encryption_key_version": match identity::current_encryption_key_version() {
+            Ok(v) => json!(v),
+            Err(_) => json!(null),
+        },
         "version": env!("CARGO_PKG_VERSION"),
         "public_addrs": public_addrs,
         "proof": {

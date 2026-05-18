@@ -197,7 +197,14 @@ async fn decrypt_request_if_needed(request: Value) -> anyhow::Result<(Value, Opt
     let ciphertext = base64::engine::general_purpose::STANDARD
         .decode(ciphertext_b64)
         .context("ciphertext is not valid base64")?;
-    let plaintext = identity::decrypt_request(&ciphertext, &epk).await?;
+    let plaintext = if let Some(v) = request
+        .get("encryption_key_version")
+        .and_then(|x| x.as_u64())
+    {
+        identity::decrypt_request_versioned(&ciphertext, &epk, v as u32)?
+    } else {
+        identity::decrypt_request(&ciphertext, &epk).await?
+    };
     let parsed =
         serde_json::from_slice::<Value>(&plaintext).context("decrypted body is not valid json")?;
     Ok((parsed, Some(epk)))
