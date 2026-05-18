@@ -6,6 +6,7 @@
 
 use axum::Json;
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "evm-settlement")]
 use tracing::error;
 
 #[derive(Debug, Deserialize)]
