@@ -11,13 +11,13 @@
 // 4. Compare against the expected MRENCLAVE for the provider's code
 // 5. Return an AttestationResult with the verification outcome
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 
-use super::quote::{Quote, QuoteType};
 use super::nras::AttestationResponse;
+use super::quote::{Quote, QuoteType};
 
 // ---------------------------------------------------------------------------
 // Verification result types
@@ -75,11 +75,7 @@ impl AttestationResult {
     }
 
     /// Create a failed result.
-    pub fn failure(
-        trust_level: TrustLevel,
-        error: String,
-        provider_id: Option<String>,
-    ) -> Self {
+    pub fn failure(trust_level: TrustLevel, error: String, provider_id: Option<String>) -> Self {
         Self {
             trust_level,
             tee_report_hash: String::new(),
@@ -118,6 +114,7 @@ pub fn parse_quote(raw_quote: &[u8], quote_type: QuoteType) -> Result<Quote> {
         QuoteType::Tdx => parse_tdx_quote(raw_quote)?,
         QuoteType::SevSnp | QuoteType::SevEs => parse_sev_quote(raw_quote)?,
         QuoteType::Nitro => parse_nitro_quote(raw_quote)?,
+        QuoteType::Unknown => bail!("cannot parse Unknown quote_type"),
     };
 
     debug!(
@@ -151,7 +148,6 @@ fn parse_sgx_quote(raw: &[u8]) -> Result<Quote> {
     let version = u16::from_le_bytes([raw[0], raw[1]]);
     let key_type = u16::from_le_bytes([raw[2], raw[3]]);
 
-    // MRENCLAVE is at offset 48-79 in standard SGX quote format
     let mrenclave = if raw.len() >= 80 {
         let mut mren = [0u8; 32];
         mren.copy_from_slice(&raw[48..80]);
@@ -160,21 +156,21 @@ fn parse_sgx_quote(raw: &[u8]) -> Result<Quote> {
         None
     };
 
-    Ok(Quote {
-        quote_type: if key_type == 1 {
-            QuoteType::SgxEpid
-        } else {
-            QuoteType::SgxEcdsa
-        },
-        mrenclave,
-        signer_id: None,
-        platform_info: Some(u64::from_le_bytes([
-            raw[8], raw[9], raw[10], raw[11], raw[12], raw[13], raw[14], raw[15],
-        ])),
-        reserved: None,
-        version,
-        raw_size: raw.len(),
-    })
+    let qt = if key_type == 1 {
+        QuoteType::SgxEpid
+    } else {
+        QuoteType::SgxEcdsa
+    };
+    let mut quote = Quote::new(qt, raw.to_vec());
+    quote.version = version;
+    quote.mrenclave = mrenclave;
+    quote.signer_id = None;
+    quote.platform_info = Some(u64::from_le_bytes([
+        raw[8], raw[9], raw[10], raw[11], raw[12], raw[13], raw[14], raw[15],
+    ]));
+    quote.reserved = None;
+    quote.raw_size = raw.len();
+    Ok(quote)
 }
 
 /// Parse a TDX quote (DCAP format).
@@ -188,7 +184,6 @@ fn parse_tdx_quote(raw: &[u8]) -> Result<Quote> {
         bail!("TDX quote too small: {} bytes", raw.len());
     }
 
-    // MRENCLAVE equivalent for TDX is at offset 96 in the report body
     let mrenclave = if raw.len() >= 128 {
         let mut mren = [0u8; 32];
         mren.copy_from_slice(&raw[96..128]);
@@ -197,17 +192,16 @@ fn parse_tdx_quote(raw: &[u8]) -> Result<Quote> {
         None
     };
 
-    Ok(Quote {
-        quote_type: QuoteType::Tdx,
-        mrenclave,
-        signer_id: None,
-        platform_info: Some(u64::from_le_bytes([
-            raw[0], raw[1], raw[2], raw[3], raw[4], raw[5], raw[6], raw[7],
-        ])),
-        reserved: None,
-        version: 0,
-        raw_size: raw.len(),
-    })
+    let mut quote = Quote::new(QuoteType::Tdx, raw.to_vec());
+    quote.mrenclave = mrenclave;
+    quote.signer_id = None;
+    quote.platform_info = Some(u64::from_le_bytes([
+        raw[0], raw[1], raw[2], raw[3], raw[4], raw[5], raw[6], raw[7],
+    ]));
+    quote.reserved = None;
+    quote.version = 0;
+    quote.raw_size = raw.len();
+    Ok(quote)
 }
 
 /// Parse a SEV-SNP / SEV-ES quote.
@@ -227,7 +221,6 @@ fn parse_sev_quote(raw: &[u8]) -> Result<Quote> {
         bail!("SEV quote too small: {} bytes", raw.len());
     }
 
-    // For SEV-SNP, the "MRENCLAVE" equivalent is the measurement field
     let mrenclave = if raw.len() >= 112 {
         let mut meas = [0u8; 32];
         meas.copy_from_slice(&raw[32..64]);
@@ -236,17 +229,16 @@ fn parse_sev_quote(raw: &[u8]) -> Result<Quote> {
         None
     };
 
-    Ok(Quote {
-        quote_type: QuoteType::SevSnp,
-        mrenclave,
-        signer_id: None,
-        platform_info: Some(u64::from_le_bytes([
-            raw[0], raw[1], raw[2], raw[3], raw[4], raw[5], raw[6], raw[7],
-        ])),
-        reserved: None,
-        version: 0,
-        raw_size: raw.len(),
-    })
+    let mut quote = Quote::new(QuoteType::SevSnp, raw.to_vec());
+    quote.mrenclave = mrenclave;
+    quote.signer_id = None;
+    quote.platform_info = Some(u64::from_le_bytes([
+        raw[0], raw[1], raw[2], raw[3], raw[4], raw[5], raw[6], raw[7],
+    ]));
+    quote.reserved = None;
+    quote.version = 0;
+    quote.raw_size = raw.len();
+    Ok(quote)
 }
 
 /// Parse a AWS Nitro TEE quote.
@@ -260,7 +252,6 @@ fn parse_nitro_quote(raw: &[u8]) -> Result<Quote> {
         bail!("Nitro quote too small: {} bytes", raw.len());
     }
 
-    // Nitro measurement hash is at offset 16 in the report body
     let mrenclave = if raw.len() >= 48 {
         let mut meas = [0u8; 32];
         meas.copy_from_slice(&raw[16..48]);
@@ -269,15 +260,14 @@ fn parse_nitro_quote(raw: &[u8]) -> Result<Quote> {
         None
     };
 
-    Ok(Quote {
-        quote_type: QuoteType::Nitro,
-        mrenclave,
-        signer_id: None,
-        platform_info: None,
-        reserved: None,
-        version: 0,
-        raw_size: raw.len(),
-    })
+    let mut quote = Quote::new(QuoteType::Nitro, raw.to_vec());
+    quote.mrenclave = mrenclave;
+    quote.signer_id = None;
+    quote.platform_info = None;
+    quote.reserved = None;
+    quote.version = 0;
+    quote.raw_size = raw.len();
+    Ok(quote)
 }
 
 // ---------------------------------------------------------------------------
@@ -298,14 +288,28 @@ pub fn verify_attestation(
     provider_id: Option<String>,
 ) -> Result<AttestationResult> {
     // Parse the quote
-    let quote = parse_quote(raw_quote, quote_type)
-        .map_err(|e| AttestationResult::failure(TrustLevel::TierB, e.to_string(), provider_id.clone()))?;
+    let quote = match parse_quote(raw_quote, quote_type) {
+        Ok(q) => q,
+        Err(e) => {
+            return Ok(AttestationResult::failure(
+                TrustLevel::TierB,
+                e.to_string(),
+                provider_id.clone(),
+            ));
+        }
+    };
 
     // Check that NRAS returned a report hash
-    let tee_hash = nras_response
-        .tee_report_hash
-        .as_ref()
-        .ok_or_else(|| AttestationResult::failure(TrustLevel::TierB, "NRAS did not return tee_report_hash".to_string(), provider_id.clone()))?;
+    let tee_hash = match nras_response.tee_report_hash.as_ref() {
+        Some(h) => h,
+        None => {
+            return Ok(AttestationResult::failure(
+                TrustLevel::TierB,
+                "NRAS did not return tee_report_hash".to_string(),
+                provider_id.clone(),
+            ));
+        }
+    };
 
     // Compute local hash of the MRENCLAVE (or equivalent)
     let local_hash = match &quote.mrenclave {
@@ -371,8 +375,9 @@ mod tests {
 
     #[test]
     fn test_parse_sgx_quote() {
-        // 128-byte synthetic SGX quote
-        let raw = vec![0u8; 128];
+        // 128-byte synthetic SGX quote; `key_type` at bytes [2..4] le = 1 => EPID interpretion in parser
+        let mut raw = vec![0u8; 128];
+        raw[2..4].copy_from_slice(&1u16.to_le_bytes());
         let quote = parse_sgx_quote(&raw).unwrap();
         assert_eq!(quote.quote_type, QuoteType::SgxEpid);
         assert!(quote.mrenclave.is_some());
@@ -437,13 +442,8 @@ mod tests {
 
     #[test]
     fn test_attestation_result_hash() {
-        let result = AttestationResult::success(
-            TrustLevel::TierA,
-            "test_hash".to_string(),
-            None,
-            2,
-            None,
-        );
+        let result =
+            AttestationResult::success(TrustLevel::TierA, "test_hash".to_string(), None, 2, None);
         let bytes = result.report_hash_bytes();
         assert_eq!(bytes.len(), 32);
     }

@@ -7,6 +7,7 @@ use serde_json::{json, Value};
 use tokio::sync::oneshot;
 use tokio::time::{timeout, Duration};
 
+use crate::attestation::truncate_hash_display;
 use crate::identity;
 use crate::network::SwarmCommand;
 
@@ -35,11 +36,20 @@ pub async fn status_detail(State(state): State<AppState>) -> impl IntoResponse {
     let (peers_known, peers) = get_peers_snapshot(&state).await;
     let cert_type = identity::attestation_cert_type().unwrap_or("mock-software");
     let attestation = if state.config.attestation.nras_enabled {
+        let snap = state.nras_state.read().await;
+        let hash_disp = snap
+            .ui
+            .tee_report_hash
+            .as_ref()
+            .map(|h| truncate_hash_display(h, 10));
         json!({
-            "mode": "nras",
-            "valid": null,
-            "status": "not_yet_verified",
-            "expires_at": null,
+            "mode": snap.ui.mode,
+            "valid": snap.ui.verified,
+            "status": snap.ui.status,
+            "tee_report_hash": hash_disp,
+            "last_error": snap.ui.last_error,
+            "verified_at_unix": snap.ui.verified_at_unix,
+            "expires_at_unix": snap.ui.expires_at_unix,
             "cert_type": cert_type
         })
     } else {

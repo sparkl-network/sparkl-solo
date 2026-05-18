@@ -1,4 +1,3 @@
-use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 
 /// Type of TEE quote being generated.
@@ -46,18 +45,38 @@ pub struct Quote {
     pub report_hash: Option<[u8; 32]>,
     /// Timestamp when the quote was generated (Unix epoch ms).
     pub timestamp_ms: u64,
+    /// Parsed MRENCLAVE / measurement hex (implementation-specific offsets).
+    #[serde(default)]
+    pub mrenclave: Option<String>,
+    #[serde(default)]
+    pub signer_id: Option<String>,
+    #[serde(default)]
+    pub platform_info: Option<u64>,
+    #[serde(default)]
+    pub reserved: Option<u64>,
+    #[serde(default)]
+    pub version: u16,
+    #[serde(default)]
+    pub raw_size: usize,
 }
 
 impl Quote {
     pub fn new(quote_type: QuoteType, quote_data: Vec<u8>) -> Self {
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
         Self {
             quote_type,
             quote_data,
             report_hash: None,
-            timestamp_ms: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_millis() as u64)
-                .unwrap_or(0),
+            timestamp_ms: ts,
+            mrenclave: None,
+            signer_id: None,
+            platform_info: None,
+            reserved: None,
+            version: 0,
+            raw_size: 0,
         }
     }
 
@@ -73,6 +92,6 @@ impl Quote {
 
     /// Returns the report hash as a hex string (if available).
     pub fn report_hash_hex(&self) -> Option<String> {
-        self.report_hash.map(|h| hex::encode(h))
+        self.report_hash.map(hex::encode)
     }
 }

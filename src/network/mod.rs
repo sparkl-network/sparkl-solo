@@ -138,42 +138,46 @@ pub async fn start_swarm(
                             }
                         }
                         SwarmEvent::Behaviour(SparklEvent::Identify(event)) => {
-                            if let libp2p::identify::Event::Received { peer_id: remote_peer_id, info, .. } = event {
-                                let protocol_version = info.protocol_version.clone();
-                                let agent_version = info.agent_version.clone();
-                                let is_sparkl_peer = protocol_version.starts_with("sparkl/");
-                                if is_sparkl_peer {
-                                    known_peers.insert(remote_peer_id);
-                                    for addr in info.listen_addrs {
-                                        if !is_dht_address_allowed(&addr, allow_non_globals_in_dht) {
+                            #[allow(clippy::collapsible_match, clippy::single_match)]
+                            match event {
+                                libp2p::identify::Event::Received { peer_id: remote_peer_id, info, .. } => {
+                                    let protocol_version = info.protocol_version.clone();
+                                    let agent_version = info.agent_version.clone();
+                                    let is_sparkl_peer = protocol_version.starts_with("sparkl/");
+                                    if is_sparkl_peer {
+                                        known_peers.insert(remote_peer_id);
+                                        for addr in info.listen_addrs {
+                                            if !is_dht_address_allowed(&addr, allow_non_globals_in_dht) {
+                                                info!(
+                                                    local_peer=%local_peer_id_str,
+                                                    identified_peer=%remote_peer_id,
+                                                    %addr,
+                                                    "ignored non-global address for DHT"
+                                                );
+                                                continue;
+                                            }
                                             info!(
                                                 local_peer=%local_peer_id_str,
                                                 identified_peer=%remote_peer_id,
                                                 %addr,
-                                                "ignored non-global address for DHT"
+                                                protocol_version=%protocol_version,
+                                                agent_version=%agent_version,
+                                                "identify accepted sparkl peer"
                                             );
-                                            continue;
+                                            swarm.behaviour_mut().kademlia.add_address(&remote_peer_id, addr);
                                         }
+                                    } else {
                                         info!(
                                             local_peer=%local_peer_id_str,
                                             identified_peer=%remote_peer_id,
-                                            %addr,
                                             protocol_version=%protocol_version,
                                             agent_version=%agent_version,
-                                            "identify accepted sparkl peer"
+                                            "identify ignored non-sparkl peer"
                                         );
-                                        swarm.behaviour_mut().kademlia.add_address(&remote_peer_id, addr);
+                                        known_peers.remove(&remote_peer_id);
                                     }
-                                } else {
-                                    info!(
-                                        local_peer=%local_peer_id_str,
-                                        identified_peer=%remote_peer_id,
-                                        protocol_version=%protocol_version,
-                                        agent_version=%agent_version,
-                                        "identify ignored non-sparkl peer"
-                                    );
-                                    known_peers.remove(&remote_peer_id);
                                 }
+                                _ => {}
                             }
                         }
                         SwarmEvent::Behaviour(SparklEvent::Ping(ping_event)) => {

@@ -11,7 +11,6 @@ use chrono::Utc;
 use crypto_box::aead::Aead;
 use crypto_box::{PublicKey as CryptoPublicKey, SalsaBox, SecretKey};
 use futures::stream;
-use hex;
 use rand::RngCore;
 use reqwest::Client;
 use serde_json::{json, Value};
@@ -29,10 +28,16 @@ use sparkl_solo::receipts::{ChunkReceipt, UnicityProof};
 use sparkl_solo::server::{self, AppState};
 use sparkl_solo::session::{SecurityTier, SessionManager};
 use sparkl_solo::store::Store;
+use sparkl_solo::attestation::NrasRuntimeState;
 use tempfile::TempDir;
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
+use tokio::sync::RwLock;
 use tokio::time::sleep;
+
+fn test_nras_state() -> Arc<RwLock<NrasRuntimeState>> {
+    Arc::new(RwLock::new(NrasRuntimeState::default()))
+}
 
 async fn backend_health() -> Json<Value> {
     Json(json!({"ok": true}))
@@ -97,6 +102,8 @@ fn test_config(backend_addr: SocketAddr, temp_dir: &TempDir) -> Config {
             nras_url: "https://example.com".to_string(),
             nras_enabled: false,
             cert_ttl_days: 7,
+            nras_quote_hex: String::new(),
+            nras_signature_hex: String::new(),
         },
         registry: RegistryConfig {
             registry_contract_address: "0x0000000000000000000000000000000000000000"
@@ -191,6 +198,7 @@ async fn status_exposes_minimal_public_fields() {
         sessions,
         swarm_cmd: None,
         started_at: Utc::now(),
+        nras_state: test_nras_state(),
     };
     let node_addr = spawn(server::router(app_state)).await;
 
@@ -247,6 +255,7 @@ async fn identity_exposes_trust_anchor_fields() {
         sessions,
         swarm_cmd: None,
         started_at: Utc::now(),
+        nras_state: test_nras_state(),
     };
     let node_addr = spawn(server::router(app_state)).await;
 
@@ -347,6 +356,7 @@ async fn status_detail_is_available_when_enabled() {
         sessions,
         swarm_cmd: None,
         started_at: Utc::now(),
+        nras_state: test_nras_state(),
     };
     let node_addr = spawn(server::router(app_state)).await;
 
@@ -386,6 +396,7 @@ async fn returns_stored_unicity_proof_for_receipt() {
         sessions: sessions.clone(),
         swarm_cmd: None,
         started_at: Utc::now(),
+        nras_state: test_nras_state(),
     };
     let node_addr = spawn(server::router(app_state)).await;
 
@@ -460,6 +471,7 @@ async fn lists_models_via_node_endpoint() {
         sessions,
         swarm_cmd: None,
         started_at: Utc::now(),
+        nras_state: test_nras_state(),
     };
     let node_addr = spawn(server::router(app_state)).await;
 
@@ -507,6 +519,7 @@ async fn rejects_unknown_model_before_stream() {
         sessions,
         swarm_cmd: None,
         started_at: Utc::now(),
+        nras_state: test_nras_state(),
     };
     let node_addr = spawn(server::router(app_state)).await;
 
@@ -554,6 +567,7 @@ async fn proxies_plaintext_and_embeds_receipts() {
         sessions,
         swarm_cmd: None,
         started_at: Utc::now(),
+        nras_state: test_nras_state(),
     };
     let node_addr = spawn(server::router(app_state)).await;
 
@@ -595,6 +609,7 @@ async fn proxies_encrypted_and_embeds_receipts() {
         sessions,
         swarm_cmd: None,
         started_at: Utc::now(),
+        nras_state: test_nras_state(),
     };
     let node_addr = spawn(server::router(app_state)).await;
 
@@ -845,6 +860,7 @@ async fn encrypted_chat_honors_encryption_key_version_field() {
         sessions,
         swarm_cmd: None,
         started_at: Utc::now(),
+        nras_state: test_nras_state(),
     };
     let node_addr = spawn(server::router(app_state)).await;
 
@@ -949,6 +965,7 @@ async fn legacy_v0_encrypted_request_decrypts() {
         sessions,
         swarm_cmd: None,
         started_at: Utc::now(),
+        nras_state: test_nras_state(),
     };
     let node_addr = spawn(server::router(app_state)).await;
 

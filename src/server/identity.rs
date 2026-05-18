@@ -5,6 +5,7 @@ use axum::Json;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
+use crate::attestation::truncate_hash_display;
 use crate::identity;
 
 use super::AppState;
@@ -49,7 +50,8 @@ pub async fn identity(State(state): State<AppState>) -> Response {
     // -- 3. Fetch chain head block hash (if EVM configured)
     let chain_proof = if state.config.settlement.enabled
         && !state.config.settlement.evm_rpc_url.trim().is_empty()
-        && !state.config
+        && !state
+            .config
             .settlement
             .evm_rpc_url
             .contains("YOUR_POLKADOT")
@@ -132,6 +134,32 @@ pub async fn identity(State(state): State<AppState>) -> Response {
 
     if let Ok(cert_type) = identity::attestation_cert_type() {
         body["key_source"] = json!(cert_type);
+    }
+
+    if state.config.attestation.nras_enabled {
+        let snap = state.nras_state.read().await;
+        let hash_disp = snap
+            .ui
+            .tee_report_hash
+            .as_ref()
+            .map(|h| truncate_hash_display(h, 10));
+        let err_short = snap.ui.last_error.as_ref().map(|e| {
+            if e.len() <= 200 {
+                e.clone()
+            } else {
+                format!("{}…", &e[..200])
+            }
+        });
+        body["attestation"] = json!({
+            "mode": snap.ui.mode,
+            "verified": snap.ui.verified,
+            "status": snap.ui.status,
+            "tee_report_hash": hash_disp,
+            "last_error": err_short,
+            "verified_at_unix": snap.ui.verified_at_unix,
+            "expires_at_unix": snap.ui.expires_at_unix,
+            "cert_ttl_days": state.config.attestation.cert_ttl_days,
+        });
     }
 
     Json(body).into_response()

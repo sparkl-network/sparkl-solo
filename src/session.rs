@@ -175,7 +175,8 @@ impl SessionManager {
             .iter()
             .filter_map(|entry| {
                 let guard = entry.lock().ok()?;
-                if guard.security_tier != SecurityTier::TeeVerified || guard.evm_session_id.is_none()
+                if guard.security_tier != SecurityTier::TeeVerified
+                    || guard.evm_session_id.is_none()
                 {
                     return None;
                 }

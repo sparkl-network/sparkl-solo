@@ -4,7 +4,9 @@ use axum::routing::{get, post};
 use axum::Router;
 use chrono::{DateTime, Utc};
 use tokio::sync::mpsc;
+use tokio::sync::RwLock;
 
+use crate::attestation::NrasRuntimeState;
 use crate::config::Config;
 use crate::identity::NodeIdentity;
 use crate::network::SwarmCommand;
@@ -26,6 +28,7 @@ pub struct AppState {
     pub sessions: Arc<SessionManager>,
     pub swarm_cmd: Option<mpsc::Sender<SwarmCommand>>,
     pub started_at: DateTime<Utc>,
+    pub nras_state: Arc<RwLock<NrasRuntimeState>>,
 }
 
 pub fn router(state: AppState) -> Router {

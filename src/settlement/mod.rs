@@ -43,10 +43,7 @@ pub async fn run_epoch_loop(
     let mut tee_remain = tee_every;
     let mut epoch_remain = epoch_every;
     let mut epoch_id: u64 = 0;
-    #[cfg_attr(
-        not(feature = "evm-settlement"),
-        allow(unused_variables, unused_mut)
-    )]
+    #[cfg_attr(not(feature = "evm-settlement"), allow(unused_variables, unused_mut))]
     let mut tee_last_eligible_block: Option<u64> = None;
 
     loop {
@@ -97,10 +94,7 @@ pub async fn run_epoch_loop(
                 ended_at: Utc::now(),
             });
         } else if tee_tick_now && !tee_candidates.is_empty() {
-            info!(
-                tee_candidates = tee_candidates.len(),
-                "settlement tee tick"
-            );
+            info!(tee_candidates = tee_candidates.len(), "settlement tee tick");
         }
 
         #[cfg(feature = "evm-settlement")]

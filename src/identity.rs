@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 #[cfg(feature = "tpm")]
 use std::process::Command;
 use std::sync::RwLock;
@@ -92,6 +92,66 @@ struct IdentityMeta {
     key_source: KeySource,
 }
 
+/// Load existing `identity.json` + `identity-secret.json` only (no generation). Initializes [`IDENTITY`].
+pub fn load_existing(config: &Config) -> Result<NodeIdentity> {
+    let dir = config.node.data_dir.clone();
+    let public_path = dir.join("identity.json");
+    let secret_path = dir.join("identity-secret.json");
+    let meta_path = dir.join("identity-meta.json");
+
+    if !public_path.exists() || !secret_path.exists() {
+        return Err(anyhow!(
+            "identity files not found (expected {:?} and {:?}); refuse to generate new keys for rotate-encryption-key",
+            public_path,
+            secret_path
+        ));
+    }
+
+    let public: NodeIdentity =
+        serde_json::from_slice(&fs::read(&public_path).context("failed to read identity.json")?)
+            .context("invalid identity.json")?;
+    let secret: StoredSecret = serde_json::from_slice(
+        &fs::read(&secret_path).context("failed to read identity-secret.json")?,
+    )
+    .context("invalid identity-secret.json")?;
+    let meta: IdentityMeta = if meta_path.exists() {
+        serde_json::from_slice(&fs::read(&meta_path).context("failed to read identity-meta.json")?)
+            .context("invalid identity-meta.json")?
+    } else {
+        IdentityMeta {
+            key_source: KeySource::Software,
+        }
+    };
+
+    if secret.x25519_version >= 1 {
+        let expected =
+            derive_versioned_x25519_secret(&secret.ed25519_secret, secret.x25519_version);
+        if expected != secret.x25519_secret {
+            return Err(anyhow!(
+                "identity-secret.json: x25519_secret does not match derived key for version {}",
+                secret.x25519_version
+            ));
+        }
+    }
+
+    let loaded = LoadedIdentity {
+        public,
+        x25519_secret: secret.x25519_secret,
+        x25519_version: secret.x25519_version,
+        legacy_x25519_secret: secret.legacy_x25519_secret,
+        ed25519_secret: secret.ed25519_secret,
+        key_source: meta.key_source,
+        data_dir: dir,
+    };
+
+    let cell = IDENTITY.get_or_init(|| RwLock::new(None));
+    let mut guard = cell
+        .write()
+        .map_err(|_| anyhow!("identity lock poisoned"))?;
+    *guard = Some(loaded.clone());
+    Ok(loaded.public)
+}
+
 pub async fn load_or_generate(config: &Config) -> Result<NodeIdentity> {
     let dir = config.node.data_dir.clone();
     fs::create_dir_all(&dir).context("failed to create data dir")?;
@@ -121,7 +181,8 @@ pub async fn load_or_generate(config: &Config) -> Result<NodeIdentity> {
         };
 
         if secret.x25519_version >= 1 {
-            let expected = derive_versioned_x25519_secret(&secret.ed25519_secret, secret.x25519_version);
+            let expected =
+                derive_versioned_x25519_secret(&secret.ed25519_secret, secret.x25519_version);
             if expected != secret.x25519_secret {
                 return Err(anyhow!(
                     "identity-secret.json: x25519_secret does not match derived key for version {}",
@@ -281,11 +342,11 @@ pub fn prepare_encryption_rotation() -> Result<(u32, [u8; 32], [u8; 32])> {
 }
 
 /// After a successful on-chain `rotateEncryptionKey`, persist the next derived secret and bump the local version.
-pub fn persist_encryption_key_rotation(new_version: u32, new_x25519_secret: [u8; 32]) -> Result<()> {
-    let expected = derive_versioned_x25519_secret(
-        &require_loaded()?.ed25519_secret,
-        new_version,
-    );
+pub fn persist_encryption_key_rotation(
+    new_version: u32,
+    new_x25519_secret: [u8; 32],
+) -> Result<()> {
+    let expected = derive_versioned_x25519_secret(&require_loaded()?.ed25519_secret, new_version);
     if expected != new_x25519_secret {
         return Err(anyhow!(
             "new x25519 secret does not match deterministic derivation for version {new_version}"
@@ -295,7 +356,9 @@ pub fn persist_encryption_key_rotation(new_version: u32, new_x25519_secret: [u8;
     let cell = IDENTITY
         .get()
         .ok_or_else(|| anyhow!("identity not initialized"))?;
-    let mut guard = cell.write().map_err(|_| anyhow!("identity lock poisoned"))?;
+    let mut guard = cell
+        .write()
+        .map_err(|_| anyhow!("identity lock poisoned"))?;
     let loaded = guard
         .as_mut()
         .ok_or_else(|| anyhow!("identity not initialized"))?;
@@ -457,8 +520,8 @@ fn tpm_getrandom_64() -> Result<[u8; 64]> {
 }
 
 #[allow(dead_code)]
-fn _identity_dir(data_dir: &PathBuf) -> PathBuf {
-    data_dir.clone()
+fn _identity_dir(data_dir: &Path) -> PathBuf {
+    data_dir.to_path_buf()
 }
 
 #[cfg(test)]

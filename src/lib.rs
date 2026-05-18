@@ -1,6 +1,10 @@
+pub mod attestation;
+pub mod cli;
 pub mod config;
 pub mod identity;
 pub mod network;
+#[cfg(feature = "evm-settlement")]
+pub mod network_config;
 pub mod proxy;
 pub mod receipts;
 pub mod registry;
@@ -8,5 +12,3 @@ pub mod server;
 pub mod session;
 pub mod settlement;
 pub mod store;
-#[cfg(feature = "evm-settlement")]
-pub mod network_config;

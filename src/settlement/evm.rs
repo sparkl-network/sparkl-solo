@@ -114,18 +114,20 @@ pub(crate) async fn process_settlement_tick(
         .connect_http(rpc_url);
     let escrow_operator = SettlementEscrow::new(escrow_addr, &operator_exec);
 
-    let chain_head_opt =
-        if tee_tick_now && !tee_candidates.is_empty() && settlement.tee_settle_every_n_blocks > 0 {
-            match fetch_head_block_number(&read_provider).await {
-                Ok(h) => Some(h),
-                Err(e) => {
-                    warn!(error = %e, "failed to fetch chain head for tee_settle_every_n_blocks gate");
-                    None
-                }
+    let chain_head_opt = if tee_tick_now
+        && !tee_candidates.is_empty()
+        && settlement.tee_settle_every_n_blocks > 0
+    {
+        match fetch_head_block_number(&read_provider).await {
+            Ok(h) => Some(h),
+            Err(e) => {
+                warn!(error = %e, "failed to fetch chain head for tee_settle_every_n_blocks gate");
+                None
             }
-        } else {
-            None
-        };
+        }
+    } else {
+        None
+    };
 
     let tee_gate_ok = tee_gate_open(settlement, chain_head_opt, tee_last_eligible_block.as_ref());
 
@@ -511,7 +513,7 @@ async fn fetch_head_block_number<P: Provider>(provider: &P) -> Result<u64> {
         .get_block_number()
         .await
         .context("get_block_number eth_call failed")?;
-    Ok(n.into())
+    Ok(n)
 }
 
 fn usage_within_tee_tolerance(local_total: U256, usage: U256, bps: u16) -> bool {

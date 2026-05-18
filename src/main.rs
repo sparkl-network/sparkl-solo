@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use anyhow::{anyhow, Result};
 use chrono::Utc;
+use sparkl_solo::attestation::{refresh_nras_tee_report_hash, NrasRuntimeState};
 use sparkl_solo::config;
 use sparkl_solo::identity;
 use sparkl_solo::network;
@@ -15,12 +16,20 @@ use sparkl_solo::session::SessionManager;
 use sparkl_solo::settlement;
 use sparkl_solo::store::Store;
 use tokio::net::TcpListener;
+use tokio::sync::RwLock;
+use tokio::time::sleep;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let cli = parse_cli_args(std::env::args().skip(1))?;
+    let mut argv = std::env::args().collect::<Vec<_>>();
+    if argv.len() >= 2 && argv[1] == "rotate-encryption-key" {
+        argv.remove(1);
+        return run_rotate_encryption_key(argv).await;
+    }
+
+    let cli = parse_cli_args(argv.into_iter().skip(1))?;
     let mut cfg = config::load(cli.config_path.as_deref())?;
     apply_cli_overrides(&mut cfg, &cli)?;
     tracing_subscriber::fmt()
@@ -30,9 +39,13 @@ async fn main() -> Result<()> {
     #[cfg(feature = "evm-settlement")]
     if cfg.settlement.enabled {
         let rpc = cfg.registry.effective_evm_rpc_url(&cfg.settlement);
-        let resolved = sparkl_solo::network_config::resolve_with_overrides(rpc, &cfg.registry, &cfg.settlement)
-            .await
-            .map_err(|e| e.context("resolving hub contract addresses"))?;
+        let resolved = sparkl_solo::network_config::resolve_with_overrides(
+            rpc,
+            &cfg.registry,
+            &cfg.settlement,
+        )
+        .await
+        .map_err(|e| e.context("resolving hub contract addresses"))?;
         cfg.registry.registry_contract_address =
             sparkl_solo::network_config::format_address_cfg(resolved.provider_registry);
         cfg.settlement.escrow_contract =
@@ -61,6 +74,9 @@ async fn main() -> Result<()> {
         );
     }
     let identity = identity::load_or_generate(&cfg).await?;
+    let identity_arc = Arc::new(identity.clone());
+    let nras_state = Arc::new(RwLock::new(NrasRuntimeState::default()));
+
     let (_swarm_handle, swarm_cmd) =
         network::start_swarm(&identity, &cfg.network, &cfg.node.data_dir).await?;
 
@@ -73,12 +89,38 @@ async fn main() -> Result<()> {
     sessions.recover_from_store()?;
 
     if cfg.registry.enabled {
-        let identity_arc = Arc::new(identity.clone());
+        let identity_loop = identity_arc.clone();
         let proxy_arc = proxy.clone();
         let registry_cfg = cfg.registry.clone();
         let settlement_cfg = cfg.settlement.clone();
+        let attestation_cfg = cfg.attestation.clone();
+        let nr = nras_state.clone();
         tokio::spawn(async move {
-            registry::run_heartbeat_loop(identity_arc, proxy_arc, registry_cfg, settlement_cfg).await;
+            registry::run_heartbeat_loop(
+                identity_loop,
+                proxy_arc,
+                registry_cfg,
+                settlement_cfg,
+                attestation_cfg,
+                nr,
+            )
+            .await;
+        });
+    } else if cfg.attestation.nras_enabled {
+        let attestation_cfg = cfg.attestation.clone();
+        let nr = nras_state.clone();
+        let id = identity_arc.clone();
+        let tick_secs = cfg.registry.heartbeat_secs.max(5);
+        tokio::spawn(async move {
+            loop {
+                refresh_nras_tee_report_hash(
+                    &attestation_cfg,
+                    Some(id.peer_id.clone()),
+                    nr.clone(),
+                )
+                .await;
+                sleep(Duration::from_secs(tick_secs)).await;
+            }
         });
     }
 
@@ -99,6 +141,7 @@ async fn main() -> Result<()> {
         sessions,
         swarm_cmd: Some(swarm_cmd),
         started_at: Utc::now(),
+        nras_state,
     };
 
     let app = server::router(state);
@@ -107,6 +150,138 @@ async fn main() -> Result<()> {
     info!("sparkl-solo ready on {}", listener.local_addr()?);
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+async fn run_rotate_encryption_key(argv: Vec<String>) -> Result<()> {
+    #[cfg(not(feature = "evm-settlement"))]
+    {
+        let _ = argv;
+        eprintln!(
+            "The `rotate-encryption-key` command requires the `evm-settlement` feature.\n\
+             Rebuild with: cargo build --features evm-settlement --bin sparkl-solo"
+        );
+        std::process::exit(1);
+    }
+
+    #[cfg(feature = "evm-settlement")]
+    {
+        use anyhow::Context;
+        use chrono::Utc;
+        use sparkl_solo::registry::{
+            rotate_encryption_key_with_signer, RotateEncryptionKeyOutcome,
+        };
+
+        let rotate_cli = sparkl_solo::cli::rotate_encryption_key::parse_rotate_encryption_key_args(
+            argv.into_iter(),
+        )?;
+        let mut cfg = config::load(rotate_cli.config_path.as_deref())?;
+
+        if cfg.settlement.enabled {
+            let rpc = cfg.registry.effective_evm_rpc_url(&cfg.settlement);
+            let resolved = sparkl_solo::network_config::resolve_with_overrides(
+                rpc,
+                &cfg.registry,
+                &cfg.settlement,
+            )
+            .await
+            .context("resolving hub contract addresses")?;
+            cfg.registry.registry_contract_address =
+                sparkl_solo::network_config::format_address_cfg(resolved.provider_registry);
+            cfg.settlement.escrow_contract =
+                sparkl_solo::network_config::format_address_cfg(resolved.settlement_escrow);
+        }
+
+        tracing_subscriber::fmt()
+            .with_env_filter(EnvFilter::new(cfg.node.log_level.clone()))
+            .init();
+
+        let operator_key =
+            resolve_rotation_operator_key(rotate_cli.operator_key.as_deref(), &cfg.settlement)?;
+
+        identity::load_existing(&cfg)?;
+
+        let id = identity::current_identity()?;
+        let old_ver = identity::current_encryption_key_version()?;
+
+        let outcome = rotate_encryption_key_with_signer(
+            &id,
+            &cfg.registry,
+            &cfg.settlement,
+            rotate_cli.grace_period_secs,
+            &operator_key,
+            rotate_cli.dry_run,
+            false,
+        )
+        .await?;
+
+        let next_ver = match &outcome {
+            RotateEncryptionKeyOutcome::DryRun {
+                next_encryption_version,
+                ..
+            } => *next_encryption_version,
+            RotateEncryptionKeyOutcome::Submitted {
+                next_encryption_version,
+                ..
+            } => *next_encryption_version,
+        };
+
+        let approx_end =
+            Utc::now() + chrono::Duration::seconds(rotate_cli.grace_period_secs as i64);
+        info!(
+            old_x25519_version = old_ver,
+            new_x25519_version = next_ver,
+            grace_period_secs = rotate_cli.grace_period_secs,
+            approx_previous_key_deprecation_end = %approx_end.to_rfc3339(),
+            "encryption key rotation (wall-clock deprecation hint; chain uses block timestamps)"
+        );
+
+        match outcome {
+            RotateEncryptionKeyOutcome::DryRun {
+                calldata_hex,
+                new_x25519_pubkey_hex,
+                node_id_hex,
+                registry_address,
+                ..
+            } => {
+                println!("dry-run: no transaction sent, identity files unchanged");
+                println!("registry_address: {registry_address}");
+                println!("nodeId: {node_id_hex}");
+                println!("new_x25519_pubkey: {new_x25519_pubkey_hex}");
+                println!("rotateEncryptionKey calldata: {calldata_hex}");
+            }
+            RotateEncryptionKeyOutcome::Submitted { tx_hash, .. } => {
+                info!(%tx_hash, "rotateEncryptionKey transaction confirmed");
+            }
+        }
+
+        Ok(())
+    }
+}
+
+#[cfg(feature = "evm-settlement")]
+fn resolve_rotation_operator_key(
+    flag: Option<&str>,
+    settlement: &sparkl_solo::config::SettlementConfig,
+) -> Result<String> {
+    if let Some(k) = flag {
+        let t = k.trim();
+        if !t.is_empty() {
+            return Ok(t.to_string());
+        }
+    }
+    if let Ok(k) = std::env::var("SETTLEMENT_KEY") {
+        let t = k.trim().to_string();
+        if !t.is_empty() {
+            return Ok(t);
+        }
+    }
+    let pk = settlement.evm_provider_wallet_private_key.trim();
+    if !pk.is_empty() {
+        return Ok(pk.to_string());
+    }
+    Err(anyhow!(
+        "operator key: pass --operator-key, set SETTLEMENT_KEY, or configure settlement.evm_provider_wallet_private_key"
+    ))
 }
 
 struct CliArgs {
@@ -131,6 +306,8 @@ struct CliArgs {
     backend_timeout_secs: Option<u64>,
     nras_url: Option<String>,
     nras_enabled: Option<bool>,
+    nras_quote_hex: Option<String>,
+    nras_signature_hex: Option<String>,
     cert_ttl_days: Option<u64>,
     registry_contract: Option<String>,
     registry_evm_rpc_url: Option<String>,
@@ -171,6 +348,8 @@ where
         backend_timeout_secs: None,
         nras_url: None,
         nras_enabled: None,
+        nras_quote_hex: None,
+        nras_signature_hex: None,
         cert_ttl_days: None,
         registry_contract: None,
         registry_evm_rpc_url: None,
@@ -254,6 +433,12 @@ where
             "--nras-url" => out.nras_url = Some(required_value(&mut args, "--nras-url")?),
             "--nras-enabled" => {
                 out.nras_enabled = Some(parse_bool_flag(&mut args, "--nras-enabled")?)
+            }
+            "--nras-quote-hex" => {
+                out.nras_quote_hex = Some(required_value(&mut args, "--nras-quote-hex")?)
+            }
+            "--nras-signature-hex" => {
+                out.nras_signature_hex = Some(required_value(&mut args, "--nras-signature-hex")?)
             }
             "--cert-ttl-days" => {
                 out.cert_ttl_days = Some(parse_u64_flag(&mut args, "--cert-ttl-days")?)
@@ -415,6 +600,12 @@ fn apply_cli_overrides(cfg: &mut config::Config, cli: &CliArgs) -> Result<()> {
     }
     if let Some(v) = cli.nras_enabled {
         cfg.attestation.nras_enabled = v;
+    }
+    if let Some(v) = &cli.nras_quote_hex {
+        cfg.attestation.nras_quote_hex = v.clone();
+    }
+    if let Some(v) = &cli.nras_signature_hex {
+        cfg.attestation.nras_signature_hex = v.clone();
     }
     if let Some(v) = cli.cert_ttl_days {
         cfg.attestation.cert_ttl_days = v;

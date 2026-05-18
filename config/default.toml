@@ -40,6 +40,9 @@ timeout_secs = 120
 nras_url = "https://nras.attestation.nvidia.com"
 nras_enabled = false
 cert_ttl_days = 7
+# Optional: operator-supplied quote/signature for NVIDIA NRAS `full_attestation_flow` (typically from host TEE tooling).
+nras_quote_hex = ""
+nras_signature_hex = ""
 
 [registry]
 # Hub EVM ProviderRegistry. When `evm-settlement` is enabled and `src/network_config.rs`

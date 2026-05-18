@@ -82,12 +82,18 @@ pub struct AttestationConfig {
     pub nras_url: String,
     pub nras_enabled: bool,
     pub cert_ttl_days: u64,
+    /// Hex-encoded raw TEE quote (**`full_attestation_flow` `quote`** string). Env: **`SPARKLE_ATTESTATION__NRAS_QUOTE_HEX`**.
+    #[serde(default)]
+    pub nras_quote_hex: String,
+    /// Hex-encoded **`full_attestation_flow` `signature`** string. Env: **`SPARKLE_ATTESTATION__NRAS_SIGNATURE_HEX`**.
+    #[serde(default)]
+    pub nras_signature_hex: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct RegistryConfig {
-    /// Hub EVM **`ProviderRegistry`** contract address (`0x` + 40 hex). Used when the registry
-    /// client is implemented (`registry.rs`); heartbeat remains a stub until then.
+    /// Hub EVM **`ProviderRegistry`** contract address (`0x` + 40 hex). When `evm-settlement` is enabled
+    /// and `SparklNetworkConfig` bootstrap resolves, startup may overwrite this from the network config.
     #[serde(default = "default_registry_contract_address")]
     pub registry_contract_address: String,
     /// Optional **JSON-RPC HTTP(S) URL** for registry calls. When empty, **`settlement.evm_rpc_url`**

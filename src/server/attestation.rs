@@ -5,6 +5,7 @@ use axum::Json;
 use serde::Deserialize;
 use serde_json::json;
 
+use crate::attestation::truncate_hash_display;
 use crate::identity;
 
 use super::AppState;
@@ -42,15 +43,26 @@ pub async fn challenge(
         }
     };
 
+    let mut att = json!({
+        "cert_type": identity::attestation_cert_type().unwrap_or("mock-software")
+    });
+    if state.config.attestation.nras_enabled {
+        let snap = state.nras_state.read().await;
+        att["nras_mode"] = json!(snap.ui.mode);
+        att["nras_verified"] = json!(snap.ui.verified);
+        att["nras_status"] = json!(snap.ui.status);
+        if let Some(ref h) = snap.ui.tee_report_hash {
+            att["tee_report_hash"] = json!(truncate_hash_display(h, 10));
+        }
+    }
+
     (
         StatusCode::OK,
         Json(json!({
             "provider_id": state.identity.peer_id,
             "nonce": req.nonce,
             "signature": hex::encode(signature),
-            "attestation": {
-                "cert_type": identity::attestation_cert_type().unwrap_or("mock-software")
-            }
+            "attestation": att,
         })),
     )
         .into_response()

@@ -22,7 +22,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
-use super::{NRAS_NONCE_SIZE, MAX_QUOTE_SIZE};
+use super::NRAS_NONCE_SIZE;
 
 // ---------------------------------------------------------------------------
 // Request/Response types
@@ -108,12 +108,9 @@ impl NrasClient {
             .map_err(|e| anyhow!("NRAS challenge request failed: {e}"))?;
 
         if !resp.status().is_success() {
+            let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
-            return Err(anyhow!(
-                "NRAS challenge failed ({}): {}",
-                resp.status(),
-                body
-            ));
+            return Err(anyhow!("NRAS challenge failed ({}): {}", status, body));
         }
 
         let challenge: NrasChallenge = resp
@@ -158,12 +155,9 @@ impl NrasClient {
             .map_err(|e| anyhow!("NRAS verify request failed: {e}"))?;
 
         if !resp.status().is_success() {
+            let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
-            return Err(anyhow!(
-                "NRAS verify failed ({}): {}",
-                resp.status(),
-                body
-            ));
+            return Err(anyhow!("NRAS verify failed ({}): {}", status, body));
         }
 
         let response: AttestationResponse = resp
@@ -174,7 +168,9 @@ impl NrasClient {
         if !response.ok {
             return Err(anyhow!(
                 "NRAS verification failed: {}",
-                response.error.unwrap_or_else(|| "unknown error".to_string())
+                response
+                    .error
+                    .unwrap_or_else(|| "unknown error".to_string())
             ));
         }
 
@@ -199,9 +195,10 @@ impl NrasClient {
             .map_err(|e| anyhow!("NRAS cert fetch failed: {e}"))?;
 
         if !resp.status().is_success() {
+            let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
             warn!(
-                status = %resp.status(),
+                status = %status,
                 "NRAS root cert fetch failed: {}",
                 body
             );
@@ -232,7 +229,7 @@ impl NrasClient {
 
         // Step 2: Verify quote with NRAS
         let response = self
-            .verify_quote(&quote, &signature, &challenge.challenge_id, provider_id)
+            .verify_quote(quote, signature, &challenge.challenge_id, provider_id)
             .await?;
 
         // Step 3: Validate certificate chain

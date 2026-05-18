@@ -10,6 +10,7 @@ use std::time::Duration;
 use anyhow::Context;
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
+use tokio::sync::RwLock;
 use tokio::time::sleep;
 use tracing::{error, info, warn};
 
@@ -22,7 +23,8 @@ use alloy::providers::ProviderBuilder;
 #[cfg(feature = "evm-settlement")]
 use alloy::signers::local::PrivateKeySigner;
 
-use crate::config::{RegistryConfig, SettlementConfig};
+use crate::attestation::{refresh_nras_tee_report_hash, NrasRuntimeState};
+use crate::config::{AttestationConfig, RegistryConfig, SettlementConfig};
 use crate::identity::NodeIdentity;
 use crate::proxy::BackendProxy;
 use crate::session::SecurityTier;
@@ -193,10 +195,10 @@ pub async fn register(
 
         info!(?tx_hash, "node registered successfully");
 
-        return Ok(InclusionProof {
+        Ok(InclusionProof {
             token_id: format!("tok-{}", hex::encode(node_id_b256.as_slice())),
             proof: format!("{tx_hash:#x}"),
-        });
+        })
     }
 
     #[cfg(not(feature = "evm-settlement"))]
@@ -349,6 +351,115 @@ pub async fn deregister(
     }
 }
 
+/// Result of [`rotate_encryption_key_with_signer`] (on-chain rotate + optional local persist).
+#[cfg(feature = "evm-settlement")]
+#[derive(Debug, Clone)]
+pub enum RotateEncryptionKeyOutcome {
+    DryRun {
+        calldata_hex: String,
+        new_x25519_pubkey_hex: String,
+        node_id_hex: String,
+        registry_address: String,
+        next_encryption_version: u32,
+    },
+    Submitted {
+        next_encryption_version: u32,
+        tx_hash: String,
+    },
+}
+
+/// On-chain encryption key rotation with an explicit operator key hex string.
+///
+/// When `dry_run` is true, returns ABI calldata and does not broadcast or touch disk.
+/// When `enforce_registry_enabled` is true (library / server path), `registry.enabled` must be set.
+#[cfg(feature = "evm-settlement")]
+#[allow(unused_variables)]
+pub async fn rotate_encryption_key_with_signer(
+    identity: &NodeIdentity,
+    registry: &RegistryConfig,
+    settlement: &SettlementConfig,
+    grace_period_secs: u64,
+    operator_pk_hex: &str,
+    dry_run: bool,
+    enforce_registry_enabled: bool,
+) -> Result<RotateEncryptionKeyOutcome> {
+    if enforce_registry_enabled && !registry.enabled {
+        return Err(anyhow!("registry disabled; cannot rotate encryption key on-chain"));
+    }
+
+    let pk = operator_pk_hex.trim();
+    if pk.is_empty() {
+        return Err(anyhow!("operator private key is empty"));
+    }
+
+    let registry_addr_str = registry.registry_contract_address.trim();
+    if registry_addr_str.is_empty() {
+        return Err(anyhow!(
+            "registry_contract_address is empty; set it in config or enable settlement resolution"
+        ));
+    }
+
+    let (next_ver, new_secret, pk_bytes) = crate::identity::prepare_encryption_rotation()?;
+    let new_pubkey = B256::from(pk_bytes);
+
+    let registry_addr: Address = registry_addr_str
+        .parse()
+        .map_err(|e| anyhow!("invalid registry_contract_address: {e}"))?;
+
+    let rpc_url = registry_rpc_url(registry, settlement)?;
+    let node_id_b256 = B256::from(crate::identity::on_chain_node_id_from_identity(identity));
+    let node_id_hex = format!("0x{}", hex::encode(node_id_b256.as_slice()));
+    let new_x25519_pubkey_hex = format!("0x{}", hex::encode(pk_bytes));
+
+    if dry_run {
+        let read_provider = ProviderBuilder::new().connect_http(rpc_url);
+        let instance = ProviderRegistry::new(registry_addr, &read_provider);
+        let call = instance.rotateEncryptionKey(node_id_b256, new_pubkey, grace_period_secs);
+        let calldata = call.calldata();
+        let calldata_hex = format!("0x{}", hex::encode(calldata));
+        return Ok(RotateEncryptionKeyOutcome::DryRun {
+            calldata_hex,
+            new_x25519_pubkey_hex,
+            node_id_hex,
+            registry_address: registry_addr_str.to_string(),
+            next_encryption_version: next_ver,
+        });
+    }
+
+    let signer = parse_evm_signer(pk)?;
+    let provider = ProviderBuilder::new()
+        .wallet(EthereumWallet::from(signer.clone()))
+        .fetch_chain_id()
+        .connect_http(rpc_url);
+    let instance = ProviderRegistry::new(registry_addr, &provider);
+
+    info!(
+        node_id = %hex::encode(node_id_b256.as_slice()),
+        next_ver,
+        grace_period_secs,
+        "rotating encryption key on ProviderRegistry"
+    );
+
+    let pending = instance
+        .rotateEncryptionKey(node_id_b256, new_pubkey, grace_period_secs)
+        .send()
+        .await
+        .map_err(|e| anyhow!("rotateEncryptionKey send failed: {e}"))?;
+
+    let tx_hash = pending
+        .with_required_confirmations(1)
+        .watch()
+        .await
+        .map_err(|e| anyhow!("rotateEncryptionKey confirmation failed: {e}"))?;
+
+    crate::identity::persist_encryption_key_rotation(next_ver, new_secret)?;
+    info!(next_ver, "encryption key rotation persisted locally");
+    Ok(RotateEncryptionKeyOutcome::Submitted {
+        next_encryption_version: next_ver,
+        tx_hash: format!("{tx_hash:#x}"),
+    })
+}
+
 /// On-chain encryption key rotation + local `identity-secret.json` update (requires `evm-settlement`).
 #[allow(unused_variables)]
 pub async fn rotate_encryption_key(
@@ -369,47 +480,25 @@ pub async fn rotate_encryption_key(
                 "rotate_encryption_key requires settlement.evm_provider_wallet_private_key"
             ));
         }
-
-        let (next_ver, new_secret, pk_bytes) = crate::identity::prepare_encryption_rotation()?;
-        let new_pubkey = B256::from(pk_bytes);
-
-        let signer = parse_evm_signer(pk)?;
-        let registry_addr: Address = registry
-            .registry_contract_address
-            .trim()
-            .parse()
-            .map_err(|e| anyhow!("invalid registry_contract_address: {e}"))?;
-
-        let rpc_url = registry_rpc_url(registry, settlement)?;
-        let provider = ProviderBuilder::new()
-            .wallet(EthereumWallet::from(signer.clone()))
-            .fetch_chain_id()
-            .connect_http(rpc_url);
-        let instance = ProviderRegistry::new(registry_addr, &provider);
-        let node_id_b256 = B256::from(crate::identity::on_chain_node_id_from_identity(identity));
-
-        info!(
-            node_id = %hex::encode(node_id_b256.as_slice()),
-            next_ver,
+        match rotate_encryption_key_with_signer(
+            identity,
+            registry,
+            settlement,
             grace_period_secs,
-            "rotating encryption key on ProviderRegistry"
-        );
-
-        let pending = instance
-            .rotateEncryptionKey(node_id_b256, new_pubkey, grace_period_secs)
-            .send()
-            .await
-            .map_err(|e| anyhow!("rotateEncryptionKey send failed: {e}"))?;
-
-        let _tx = pending
-            .with_required_confirmations(1)
-            .watch()
-            .await
-            .map_err(|e| anyhow!("rotateEncryptionKey confirmation failed: {e}"))?;
-
-        crate::identity::persist_encryption_key_rotation(next_ver, new_secret)?;
-        info!(next_ver, "encryption key rotation persisted locally");
-        Ok(next_ver)
+            pk,
+            false,
+            true,
+        )
+        .await?
+        {
+            RotateEncryptionKeyOutcome::Submitted {
+                next_encryption_version,
+                ..
+            } => Ok(next_encryption_version),
+            RotateEncryptionKeyOutcome::DryRun { .. } => Err(anyhow!(
+                "internal error: dry-run returned from rotate_encryption_key"
+            )),
+        }
     }
 
     #[cfg(not(feature = "evm-settlement"))]
@@ -528,11 +617,14 @@ pub async fn supports_tier(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn startup_register_with_retry(
     identity: Arc<NodeIdentity>,
     proxy: Arc<BackendProxy>,
     registry: RegistryConfig,
     settlement: SettlementConfig,
+    attestation: AttestationConfig,
+    nras_state: Arc<RwLock<NrasRuntimeState>>,
     max_retries: u32,
     initial_delay_secs: u64,
 ) -> Result<InclusionProof> {
@@ -549,11 +641,15 @@ pub async fn startup_register_with_retry(
             .map(|m| m.id)
             .collect::<Vec<_>>();
 
+        let attestation_hash =
+            refresh_nras_tee_report_hash(&attestation, Some(identity.peer_id.clone()), nras_state.clone())
+                .await;
+
         let state = ProviderState {
             peer_id: identity.peer_id.clone(),
             multiaddrs: vec![],
             models,
-            attestation_hash: String::new(),
+            attestation_hash,
             gpu_memory_gb: 0,
             price_input_m: 0,
             price_output_m: 0,
@@ -595,6 +691,8 @@ pub async fn run_heartbeat_loop(
     proxy: Arc<BackendProxy>,
     registry_cfg: RegistryConfig,
     settlement_cfg: SettlementConfig,
+    attestation_cfg: AttestationConfig,
+    nras_state: Arc<RwLock<NrasRuntimeState>>,
 ) {
     if !registry_cfg.enabled {
         warn!("registry heartbeat disabled");
@@ -615,11 +713,15 @@ pub async fn run_heartbeat_loop(
             .map(|m| m.id)
             .collect::<Vec<_>>();
 
+        let attestation_hash =
+            refresh_nras_tee_report_hash(&attestation_cfg, Some(identity.peer_id.clone()), nras_state.clone())
+                .await;
+
         let state = ProviderState {
             peer_id: identity.peer_id.clone(),
             multiaddrs: vec![],
             models,
-            attestation_hash: String::new(),
+            attestation_hash,
             gpu_memory_gb: 0,
             price_input_m: 0,
             price_output_m: 0,
