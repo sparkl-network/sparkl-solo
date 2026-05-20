@@ -85,9 +85,9 @@ Work is ordered by **dependency**: settlement client gaps and registry integrati
 
 **Still missing:**
 - [x] **On-chain session id** — `open_session_on_chain()` in `settlement/evm.rs`; `Session.evm_session_id` set from `openSession` call in inference handler; `session_min_deposit` config field (default 1e18)
-- [ ] **`deposit_dot()` / `deposit_usdc()`** — funding paths in Rust (`depositDot`, `depositUsdcAsDot`)
-- [ ] **`withdraw_earnings()`** — provider withdrawal in Rust
-- [ ] **`settle_epoch_batch()`** — confirm whether an explicit batch tx is required vs current per-session operator settle; implement or close as N/A
+- [x] **`deposit_dot()` / `deposit_usdc_as_dot()`** — funding paths in Rust (`depositDot`, `depositUsdcAsDot`), HTTP endpoints at `/settlement/deposit-dot` and `/settlement/deposit-usdc`
+- [x] **`withdraw_dot()` / `withdraw_provider_dot()`** — provider earnings withdrawal in Rust, HTTP endpoint at `/settlement/withdraw-provider`
+- [x] **`settle_epoch_batch()`** — N/A: no batch settle function exists on SettlementEscrow contract; the per-session `settleByOperatorFull`/`settleByOperatorPartial` calls handle epoch settlement
 
 *ProviderRegistry **contract writes** (`register`, heartbeat, chill/defunct): see **§1.3** (not duplicated here).*
 
@@ -104,14 +104,16 @@ Work is ordered by **dependency**: settlement client gaps and registry integrati
 #### 1.3 Provider registration (Rust → ProviderRegistry)
 **Priority: P0**
 
-- [ ] Implement `src/registry.rs` against Hub EVM (today log-only stub):
-  - [ ] `register()` — call ProviderRegistry lifecycle (register / chill / mark defunct per current contract API)
-  - [ ] `heartbeat()` — on-chain heartbeat or equivalent with provider state
-  - [ ] **Defunct flow** — align with Solidity (`chillNode`, `markDefunct`); legacy `deregisterNode` removed on-chain
-  - [ ] `get_peer_info()` — query ProviderRegistry for peer details
-- [ ] Startup registration with retry/backoff
-- [ ] Config: `registry.enabled`, `registry.heartbeat_secs`, `registry.registry_contract_address`, optional `registry.evm_rpc_url`, operator key via `settlement.evm_provider_wallet_private_key`
-- [ ] Graceful degradation on registration failure (log + continue in log-only mode)
+- [x] Implement `src/registry.rs` against Hub EVM (on-chain via `alloy::sol!` + `ProviderRegistry` ABI):
+  - [x] `register()` — on-chain `registerNode()` call with metadata URI, tier flags, operator payout address
+  - [x] `heartbeat()` — on-chain `setTEEProof()` submission with attestation hash
+  - [x] **Defunct flow** — `defunct()` calls `markDefunct(nodeId)` on-chain (requires zero open escrow sessions); `deregister()` calls `chillNode()`
+  - [x] `get_peer_info()` — `getProvider()` query returning `ProviderInfo`
+  - [x] `supports_tier()` — `supportsTier()` query
+- [x] `startup_register_with_retry()` — auto-register on startup with exponential backoff (3 retries, 30s base)
+- [x] Config: `registry.enabled`, `registry.heartbeat_secs`, `registry.registry_contract_address`, optional `registry.evm_rpc_url`, operator key via `settlement.evm_provider_wallet_private_key`
+- [x] Graceful degradation on registration failure (log + continue in log-only mode)
+- [ ] **Startup registration call** — `startup_register_with_retry()` defined but not yet wired into `main.rs` startup flow
 
 #### 1.4 Public identity (`GET /identity`)
 **Priority: P1** (portal / SDK discovery; **not** required for §1.1 session settlement logic)

@@ -509,6 +509,76 @@ pub async fn rotate_encryption_key(
     }
 }
 
+/// Mark a chilled node as defunct — final step of the lifecycle.
+///
+/// On-chain flow: `Active → Chilled → Defunct`.
+/// `markDefunct` requires the node to be in `Chilled` state and to have
+/// zero open sessions in the escrow. Only the registered node operator
+/// can call this.
+#[allow(unused_variables)]
+pub async fn defunct(
+    identity: &NodeIdentity,
+    registry: &RegistryConfig,
+    settlement: &SettlementConfig,
+) -> Result<()> {
+    if !registry.enabled {
+        warn!("registry disabled; skipping defunct");
+        return Ok(());
+    }
+
+    #[cfg(feature = "evm-settlement")]
+    {
+        let pk = settlement.evm_provider_wallet_private_key.trim();
+        if pk.is_empty() {
+            return Err(anyhow!(
+                "defunct: settlement.evm_provider_wallet_private_key not configured"
+            ));
+        }
+
+        let signer = parse_evm_signer(pk)?;
+        let registry_addr: Address = registry
+            .registry_contract_address
+            .trim()
+            .parse()
+            .map_err(|e| anyhow!("invalid registry_contract_address: {e}"))?;
+
+        let rpc_url = registry_rpc_url(registry, settlement)?;
+        let provider = ProviderBuilder::new()
+            .wallet(EthereumWallet::from(signer.clone()))
+            .fetch_chain_id()
+            .connect_http(rpc_url);
+        let instance = ProviderRegistry::new(registry_addr, &provider);
+        let node_id_b256 = B256::from(crate::identity::on_chain_node_id_from_identity(identity));
+
+        info!(
+            node_id = %hex::encode(node_id_b256.as_slice()),
+            "marking node defunct on ProviderRegistry"
+        );
+
+        let pending = instance
+            .markDefunct(node_id_b256)
+            .send()
+            .await
+            .map_err(|e| anyhow!("markDefunct send failed: {e}"))?;
+
+        let tx_hash = pending
+            .with_required_confirmations(1)
+            .watch()
+            .await
+            .map_err(|e| anyhow!("markDefunct confirmation failed: {e}"))?;
+
+        info!(?tx_hash, "node marked defunct successfully");
+
+        Ok(())
+    }
+
+    #[cfg(not(feature = "evm-settlement"))]
+    {
+        warn!("evm-settlement feature not enabled; defunct is stubbed");
+        Ok(())
+    }
+}
+
 #[allow(unused_variables)]
 pub async fn get_peer_info(
     registry: &RegistryConfig,
