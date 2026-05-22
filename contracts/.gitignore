@@ -1,5 +1,6 @@
 out/
 cache/
 broadcast/
+deployments/local.json
 .venv-sa/
 slither-report.json

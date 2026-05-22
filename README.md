@@ -6,7 +6,8 @@ Rust prototype for the `sparkl-solo` binary.
 
 Sparkl is a decentralized private AI inference network for routing model requests across independent provider nodes.
 
-- see also [sparkl-portal](https://github.com/sparkl-network/sparkl-portal) for the portal/UI
+- see also [sparkl-portal](https://github.com/sparkl-network/sparkl-portal) for the portal/UI and [sparkl-oracle-rates](https://github.com/sparkl-network/sparkl-oracle-rates) for live rate pushes
+- **Coding agents:** [AGENT.md](./AGENT.md) (workspace overview: [../AGENT.md](../AGENT.md) when cloned under `sparkl-network/`)
 
 ## Target architecture
 
@@ -36,7 +37,7 @@ A solo node is a single node that runs on a single machine. It is the simplest f
 Planned: farm or gateway node, for running one sparkl-node and multiple provider nodes
 
 ## Quick Start (Agent)
-MUST: Read the AGENTS.md!
+MUST: Read [AGENT.md](./AGENT.md) (also linked from [AGENTS.md](./AGENTS.md)).
 ```bash
 cargo build --features mock-tpm          # verify it compiles
 cargo test --features mock-tpm           # unit + integration tests

@@ -20,7 +20,15 @@ This guide covers local development for `sparkl-solo`, including running two loc
 
 Solidity sources for these contracts live under [`contracts/`](./contracts/) (Foundry layout).
 
-**Local EVM:** from `contracts/`, install [Foundry](https://book.getfoundry.sh/getting-started/installation) (or run `forge`/`anvil` via the official Docker image). Pull `forge-std` if needed: `forge install --no-git foundry-rs/forge-std`. Run `forge test` for unit tests (`ProviderRegistry`, `SettlementEscrow`, mocks). Start `anvil` (or any JSON-RPC dev node), then broadcast `script/DeployLocal.s.sol` with `forge script ... --rpc-url http://127.0.0.1:8545 --broadcast`.
+**Local EVM:** from `contracts/`, install [Foundry](https://book.getfoundry.sh/getting-started/installation) (or run `forge`/`anvil` via the official Docker image). Pull `forge-std` if needed: `forge install --no-git foundry-rs/forge-std`. Run `forge test` for unit tests (`ProviderRegistry`, `SettlementEscrow`, mocks).
+
+**One-command local stack** (Anvil + deploy + Rust tests + solo node + `sparkl-oracle-rates` env hints):
+
+```bash
+./scripts/launch-local.sh
+```
+
+Options: `--skip-tests`, `--skip-node`. Deploy-only: `cd contracts && anvil &` then `forge script script/DeployLocal.s.sol:DeployLocal --rpc-url http://127.0.0.1:8545 --broadcast` (writes `contracts/deployments/local.json` with `RateSetter` + core contracts).
 
 **Paseo (Hub testnet):** broadcast `contracts/script/DeployPaseo.s.sol` against the Paseo Hub EVM RPC; exported addresses land in [`contracts/deployments/paseo.json`](./contracts/deployments/paseo.json). See **Deploy to Paseo** below for a repeatable checklist.
 
