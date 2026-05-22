@@ -96,7 +96,7 @@ async fn main() -> Result<()> {
         let attestation_cfg = cfg.attestation.clone();
         let nr = nras_state.clone();
         tokio::spawn(async move {
-            registry::run_heartbeat_loop(
+            registry::run_registry_startup_and_heartbeat(
                 identity_loop,
                 proxy_arc,
                 registry_cfg,

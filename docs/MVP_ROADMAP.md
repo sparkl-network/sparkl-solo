@@ -113,7 +113,7 @@ Work is ordered by **dependency**: settlement client gaps and registry integrati
 - [x] `startup_register_with_retry()` — auto-register on startup with exponential backoff (3 retries, 30s base)
 - [x] Config: `registry.enabled`, `registry.heartbeat_secs`, `registry.registry_contract_address`, optional `registry.evm_rpc_url`, operator key via `settlement.evm_provider_wallet_private_key`
 - [x] Graceful degradation on registration failure (log + continue in log-only mode)
-- [ ] **Startup registration call** — `startup_register_with_retry()` defined but not yet wired into `main.rs` startup flow
+- [x] **Startup registration call** — `startup_register_with_retry()` wired in `main.rs` before `run_heartbeat_loop` when `registry.enabled`
 
 #### 1.4 Public identity (`GET /identity`)
 **Priority: P1** (portal / SDK discovery; **not** required for §1.1 session settlement logic)

@@ -688,6 +688,47 @@ pub async fn supports_tier(
 }
 
 #[allow(clippy::too_many_arguments)]
+/// Retries and base delay for [`startup_register_with_retry`] (wired from `main.rs`).
+pub const STARTUP_REGISTER_MAX_RETRIES: u32 = 3;
+pub const STARTUP_REGISTER_INITIAL_DELAY_SECS: u64 = 30;
+
+/// Issue #3: attempt on-chain registration at startup, then run the heartbeat loop (same task as `main.rs`).
+pub async fn run_registry_startup_and_heartbeat(
+    identity: Arc<NodeIdentity>,
+    proxy: Arc<BackendProxy>,
+    registry_cfg: RegistryConfig,
+    settlement_cfg: SettlementConfig,
+    attestation_cfg: AttestationConfig,
+    nras_state: Arc<RwLock<NrasRuntimeState>>,
+) {
+    if let Err(e) = startup_register_with_retry(
+        identity.clone(),
+        proxy.clone(),
+        registry_cfg.clone(),
+        settlement_cfg.clone(),
+        attestation_cfg.clone(),
+        nras_state.clone(),
+        STARTUP_REGISTER_MAX_RETRIES,
+        STARTUP_REGISTER_INITIAL_DELAY_SECS,
+    )
+    .await
+    {
+        tracing::error!(
+            error = %e,
+            "startup registration failed; starting heartbeat anyway"
+        );
+    }
+    run_heartbeat_loop(
+        identity,
+        proxy,
+        registry_cfg,
+        settlement_cfg,
+        attestation_cfg,
+        nras_state,
+    )
+    .await;
+}
+
 pub async fn startup_register_with_retry(
     identity: Arc<NodeIdentity>,
     proxy: Arc<BackendProxy>,
@@ -849,8 +890,177 @@ pub fn parse_bytes32(s: &str) -> [u8; 32] {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+    use std::time::Duration;
+
     use super::*;
-    use crate::identity::{on_chain_node_id_bytes, on_chain_node_id_from_identity};
+    use crate::attestation::NrasRuntimeState;
+    use crate::config::{AttestationConfig, BackendConfig, RegistryConfig, SettlementConfig};
+    use crate::identity::{on_chain_node_id_bytes, on_chain_node_id_from_identity, NodeIdentity};
+    use crate::proxy::BackendProxy;
+    use tokio::sync::RwLock;
+
+    fn test_identity() -> Arc<NodeIdentity> {
+        Arc::new(NodeIdentity {
+            peer_id: "12D3KooWTestPeerIdForRegistryStartup".to_string(),
+            x25519_pubkey: [1u8; 32],
+            ed25519_pubkey: [2u8; 32],
+        })
+    }
+
+    fn test_proxy() -> Arc<BackendProxy> {
+        Arc::new(
+            BackendProxy::new(&BackendConfig {
+                url: "http://127.0.0.1:9".to_string(),
+                health_path: "/health".to_string(),
+                models_path: "/v1/models".to_string(),
+                timeout_secs: 1,
+            })
+            .expect("backend proxy"),
+        )
+    }
+
+    fn test_registry_config(enabled: bool) -> RegistryConfig {
+        RegistryConfig {
+            registry_contract_address: "0x0000000000000000000000000000000000000001".to_string(),
+            evm_rpc_url: String::new(),
+            heartbeat_secs: 60,
+            enabled,
+        }
+    }
+
+    fn test_settlement_config() -> SettlementConfig {
+        SettlementConfig {
+            epoch_secs: 300,
+            evm_rpc_url: "http://127.0.0.1:8545".to_string(),
+            escrow_contract: "0x0000000000000000000000000000000000000002".to_string(),
+            sparkl_network_config_address: String::new(),
+            enabled: false,
+            evm_provider_wallet_private_key: String::new(),
+            evm_settlement_operator_wallet_private_key: String::new(),
+            usage_internal_units_per_micro_usd: 1,
+            tee_tick_secs: 30,
+            tee_settle_tokens_threshold: 1,
+            usage_tolerance_bps: 100,
+            tee_settle_every_n_blocks: 0,
+            session_min_deposit: 1_000_000_000_000_000_000,
+        }
+    }
+
+    fn test_attestation_config() -> AttestationConfig {
+        AttestationConfig {
+            nras_url: String::new(),
+            nras_enabled: false,
+            cert_ttl_days: 7,
+            nras_quote_hex: String::new(),
+            nras_signature_hex: String::new(),
+        }
+    }
+
+    fn test_nras_state() -> Arc<RwLock<NrasRuntimeState>> {
+        Arc::new(RwLock::new(NrasRuntimeState::default()))
+    }
+
+    #[tokio::test]
+    async fn startup_register_succeeds_when_registry_disabled() {
+        let proof = startup_register_with_retry(
+            test_identity(),
+            test_proxy(),
+            test_registry_config(false),
+            test_settlement_config(),
+            test_attestation_config(),
+            test_nras_state(),
+            1,
+            0,
+        )
+        .await
+        .expect("register");
+        assert_eq!(proof.token_id, "disabled");
+        assert_eq!(proof.proof, "disabled");
+    }
+
+    #[cfg(not(feature = "evm-settlement"))]
+    #[tokio::test]
+    async fn startup_register_succeeds_stub_when_registry_enabled() {
+        let proof = startup_register_with_retry(
+            test_identity(),
+            test_proxy(),
+            test_registry_config(true),
+            test_settlement_config(),
+            test_attestation_config(),
+            test_nras_state(),
+            1,
+            0,
+        )
+        .await
+        .expect("stub register");
+        assert_eq!(proof.proof, "stub-proof");
+    }
+
+    #[cfg(feature = "evm-settlement")]
+    #[tokio::test]
+    async fn startup_register_fails_without_provider_wallet_key() {
+        let err = startup_register_with_retry(
+            test_identity(),
+            test_proxy(),
+            test_registry_config(true),
+            test_settlement_config(),
+            test_attestation_config(),
+            test_nras_state(),
+            2,
+            0,
+        )
+        .await
+        .expect_err("missing key");
+        assert!(
+            err.to_string().contains("registration failed after 2 retries"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn run_registry_startup_and_heartbeat_returns_when_registry_disabled() {
+        let started = std::time::Instant::now();
+        run_registry_startup_and_heartbeat(
+            test_identity(),
+            test_proxy(),
+            test_registry_config(false),
+            test_settlement_config(),
+            test_attestation_config(),
+            test_nras_state(),
+        )
+        .await;
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "expected immediate return when registry disabled in heartbeat"
+        );
+    }
+
+    #[tokio::test]
+    async fn run_registry_startup_and_heartbeat_enters_heartbeat_when_registry_enabled() {
+        let result = tokio::time::timeout(
+            Duration::from_millis(800),
+            run_registry_startup_and_heartbeat(
+                test_identity(),
+                test_proxy(),
+                test_registry_config(true),
+                test_settlement_config(),
+                test_attestation_config(),
+                test_nras_state(),
+            ),
+        )
+        .await;
+        assert!(
+            result.is_err(),
+            "heartbeat should loop when registry.enabled is true"
+        );
+    }
+
+    #[test]
+    fn startup_register_constants_match_roadmap() {
+        assert_eq!(STARTUP_REGISTER_MAX_RETRIES, 3);
+        assert_eq!(STARTUP_REGISTER_INITIAL_DELAY_SECS, 30);
+    }
 
     #[test]
     fn test_on_chain_node_id_deterministic() {
