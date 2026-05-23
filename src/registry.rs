@@ -88,8 +88,8 @@ pub struct InclusionProof {
 #[cfg(feature = "evm-settlement")]
 fn parse_evm_signer(pk: &str) -> Result<PrivateKeySigner> {
     let pk = pk.strip_prefix("0x").unwrap_or(pk);
-    let bytes = hex::decode(pk)
-        .map_err(|e| anyhow!("invalid evm_provider_wallet_private_key hex: {e}"))?;
+    let bytes =
+        hex::decode(pk).map_err(|e| anyhow!("invalid evm_provider_wallet_private_key hex: {e}"))?;
     if bytes.len() != 32 {
         return Err(anyhow!(
             "evm_provider_wallet_private_key must be 32 bytes, got {}",
@@ -102,7 +102,10 @@ fn parse_evm_signer(pk: &str) -> Result<PrivateKeySigner> {
 }
 
 #[cfg(feature = "evm-settlement")]
-fn registry_rpc_url(registry: &RegistryConfig, settlement: &SettlementConfig) -> Result<reqwest::Url> {
+fn registry_rpc_url(
+    registry: &RegistryConfig,
+    settlement: &SettlementConfig,
+) -> Result<reqwest::Url> {
     registry
         .effective_evm_rpc_url(settlement)
         .trim()
@@ -573,10 +576,7 @@ pub async fn startup_register_with_retry(
         }
     }
 
-    Err(anyhow!(
-        "registration failed after {} retries",
-        max_retries
-    ))
+    Err(anyhow!("registration failed after {} retries", max_retries))
 }
 
 pub async fn run_heartbeat_loop(
@@ -701,11 +701,14 @@ mod tests {
     #[test]
     fn test_matches_identity_module_rule() {
         let pk = [7u8; 32];
-        assert_eq!(on_chain_node_id_bytes(&pk), on_chain_node_id_from_identity(&NodeIdentity {
-            peer_id: "x".into(),
-            x25519_pubkey: [0u8; 32],
-            ed25519_pubkey: pk,
-        }));
+        assert_eq!(
+            on_chain_node_id_bytes(&pk),
+            on_chain_node_id_from_identity(&NodeIdentity {
+                peer_id: "x".into(),
+                x25519_pubkey: [0u8; 32],
+                ed25519_pubkey: pk,
+            })
+        );
     }
 
     #[test]
@@ -725,16 +728,14 @@ mod tests {
 
     #[test]
     fn test_parse_bytes32_valid() {
-        let hex =
-            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        let hex = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
         let result = parse_bytes32(hex);
         assert_eq!(result.len(), 32);
     }
 
     #[test]
     fn test_parse_bytes32_with_0x_prefix() {
-        let hex =
-            "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        let hex = "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
         let result = parse_bytes32(hex);
         assert_eq!(result.len(), 32);
     }

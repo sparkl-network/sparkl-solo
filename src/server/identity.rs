@@ -49,7 +49,8 @@ pub async fn identity(State(state): State<AppState>) -> Response {
     // -- 3. Fetch chain head block hash (if EVM configured)
     let chain_proof = if state.config.settlement.enabled
         && !state.config.settlement.evm_rpc_url.trim().is_empty()
-        && !state.config
+        && !state
+            .config
             .settlement
             .evm_rpc_url
             .contains("YOUR_POLKADOT")

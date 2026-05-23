@@ -151,9 +151,7 @@ async fn generate_sgx_quote() -> Result<TeeQuote> {
     // Reference: https://intel.github.io/software-guard-extensions/QuoteGeneration/
     //
     // For now, return a mock quote for local testing.
-    tracing::warn!(
-        "SGX quote generation not available; using mock quote for local development"
-    );
+    tracing::warn!("SGX quote generation not available; using mock quote for local development");
     generate_mock_quote()
 }
 
@@ -215,7 +213,10 @@ fn generate_mock_quote() -> Result<TeeQuote> {
 /// 4. Verify the certificate chain (if present) against the root CA.
 ///
 /// Returns a `TeeVerificationResult` indicating success or failure.
-pub async fn verify_quote(quote: &TeeQuote, expected_nonce: &[u8; 32]) -> Result<TeeVerificationResult> {
+pub async fn verify_quote(
+    quote: &TeeQuote,
+    expected_nonce: &[u8; 32],
+) -> Result<TeeVerificationResult> {
     match quote.vendor {
         TeeVendor::IntelSgx => verify_sgx_quote(quote, expected_nonce).await,
         TeeVendor::AMDSEVSnp => verify_sev_snp_quote(quote, expected_nonce).await,
@@ -224,7 +225,10 @@ pub async fn verify_quote(quote: &TeeQuote, expected_nonce: &[u8; 32]) -> Result
     }
 }
 
-async fn verify_sgx_quote(_quote: &TeeQuote, _expected_nonce: &[u8; 32]) -> Result<TeeVerificationResult> {
+async fn verify_sgx_quote(
+    _quote: &TeeQuote,
+    _expected_nonce: &[u8; 32],
+) -> Result<TeeVerificationResult> {
     // TODO: Verify Intel SGX quote against PCK certificate chain.
     // 1. Parse the SGX quote header and body.
     // 2. Verify the PCK signature against the Intel Root CA.
@@ -236,16 +240,24 @@ async fn verify_sgx_quote(_quote: &TeeQuote, _expected_nonce: &[u8; 32]) -> Resu
     Err(anyhow!("SGX quote verification not yet implemented"))
 }
 
-async fn verify_sev_snp_quote(_quote: &TeeQuote, _expected_nonce: &[u8; 32]) -> Result<TeeVerificationResult> {
+async fn verify_sev_snp_quote(
+    _quote: &TeeQuote,
+    _expected_nonce: &[u8; 32],
+) -> Result<TeeVerificationResult> {
     // TODO: Verify AMD SEV-SNP quote against AMD root of trust.
     // 1. Parse the SEV-SNP quote header and body.
     // 2. Verify the AMD signature using the AMD Root Key.
     // 3. Verify the guest measurement matches the expected value.
     // 4. Verify the extended report matches the expected challenge.
-    Err(anyhow!("AMD SEV-SNP quote verification not yet implemented"))
+    Err(anyhow!(
+        "AMD SEV-SNP quote verification not yet implemented"
+    ))
 }
 
-async fn verify_nitro_quote(_quote: &TeeQuote, _expected_nonce: &[u8; 32]) -> Result<TeeVerificationResult> {
+async fn verify_nitro_quote(
+    _quote: &TeeQuote,
+    _expected_nonce: &[u8; 32],
+) -> Result<TeeVerificationResult> {
     // TODO: Verify AWS Nitro TPM quote against AWS root of trust.
     // 1. Parse the Nitro TPM quote structure.
     // 2. Verify the AWS TPM signature.
@@ -258,7 +270,11 @@ fn verify_mock_quote(quote: &TeeQuote) -> TeeVerificationResult {
     if quote.quote_bytes.len() >= 4 && &quote.quote_bytes[0..4] == b"MOCK" {
         TeeVerificationResult::ok(TeeVendor::Mock, quote.quote_hash())
     } else {
-        TeeVerificationResult::fail(TeeVendor::Mock, &quote.quote_bytes, "invalid mock quote header".to_string())
+        TeeVerificationResult::fail(
+            TeeVendor::Mock,
+            &quote.quote_bytes,
+            "invalid mock quote header".to_string(),
+        )
     }
 }
 
@@ -276,17 +292,13 @@ fn verify_mock_quote(quote: &TeeQuote) -> TeeVerificationResult {
 /// Note: In the current architecture, this is handled by `registry::supports_tier()`
 /// which queries the ProviderRegistry contract. This function provides a
 /// higher-level API that combines contract checks with local cache lookups.
-pub async fn verify_tier_a_provider(
-    _node_id: [u8; 32],
-) -> Result<bool> {
+pub async fn verify_tier_a_provider(_node_id: [u8; 32]) -> Result<bool> {
     // This is a placeholder that will be wired to the registry client.
     // The actual implementation calls `registry::supports_tier()` with
     // `SecurityTier::TeeVerified`.
     //
     // TODO: Wire to registry client when the EVM RPC is configured.
-    tracing::warn!(
-        "TEE provider verification not yet wired to registry client"
-    );
+    tracing::warn!("TEE provider verification not yet wired to registry client");
     Ok(false)
 }
 

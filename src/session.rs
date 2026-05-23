@@ -6,6 +6,7 @@ use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::metrics;
 use crate::receipts::{ChunkReceipt, UnicityProof};
 use crate::store::Store;
 
@@ -95,9 +96,12 @@ impl SessionManager {
         tee_quote_hash: Option<[u8; 32]>,
         evm_session_id: Option<u64>,
     ) -> Uuid {
-        let id = Uuid::new_v4();
+        let session_id = Uuid::new_v4();
+        let tier_str = format!("{:?}", security_tier);
+        metrics::inc_sessions_opened(&tier_str);
+        metrics::set_sessions_active(self.sessions.len() as f64);
         let session = Session {
-            id,
+            id: session_id,
             consumer_pubkey,
             model: model.to_string(),
             state: SessionState::Active,
@@ -114,8 +118,9 @@ impl SessionManager {
             tee_quote_hash,
         };
         let _ = self.store.save_session(&session);
-        self.sessions.insert(id, Arc::new(Mutex::new(session)));
-        id
+        self.sessions
+            .insert(session_id, Arc::new(Mutex::new(session)));
+        session_id
     }
 
     pub fn record_chunk(
@@ -199,7 +204,8 @@ impl SessionManager {
             .iter()
             .filter_map(|entry| {
                 let guard = entry.lock().ok()?;
-                if guard.security_tier != SecurityTier::TeeVerified || guard.evm_session_id.is_none()
+                if guard.security_tier != SecurityTier::TeeVerified
+                    || guard.evm_session_id.is_none()
                 {
                     return None;
                 }

@@ -85,20 +85,16 @@ pub async fn deposit_dot(
     )
     .await
     {
-        Ok(Some(tx_hash)) => {
-            Json(SettlementResponse {
-                success: true,
-                tx_hash: Some(tx_hash),
-                message: "deposit confirmed".to_string(),
-            })
-        }
-        Ok(None) => {
-            Json(SettlementResponse {
-                success: false,
-                tx_hash: None,
-                message: "deposit skipped (graceful degradation)".to_string(),
-            })
-        }
+        Ok(Some(tx_hash)) => Json(SettlementResponse {
+            success: true,
+            tx_hash: Some(tx_hash),
+            message: "deposit confirmed".to_string(),
+        }),
+        Ok(None) => Json(SettlementResponse {
+            success: false,
+            tx_hash: None,
+            message: "deposit skipped (graceful degradation)".to_string(),
+        }),
         Err(e) => {
             error!(error = %e, "deposit_dot failed");
             Json(SettlementResponse {
@@ -148,20 +144,16 @@ pub async fn deposit_usdc_as_dot(
     )
     .await
     {
-        Ok(Some(tx_hash)) => {
-            Json(SettlementResponse {
-                success: true,
-                tx_hash: Some(tx_hash),
-                message: "USDC deposit confirmed".to_string(),
-            })
-        }
-        Ok(None) => {
-            Json(SettlementResponse {
-                success: false,
-                tx_hash: None,
-                message: "USDC deposit skipped (graceful degradation)".to_string(),
-            })
-        }
+        Ok(Some(tx_hash)) => Json(SettlementResponse {
+            success: true,
+            tx_hash: Some(tx_hash),
+            message: "USDC deposit confirmed".to_string(),
+        }),
+        Ok(None) => Json(SettlementResponse {
+            success: false,
+            tx_hash: None,
+            message: "USDC deposit skipped (graceful degradation)".to_string(),
+        }),
         Err(e) => {
             error!(error = %e, "deposit_usdc_as_dot failed");
             Json(SettlementResponse {
@@ -209,20 +201,16 @@ pub async fn withdraw_dot(
     )
     .await
     {
-        Ok(Some(tx_hash)) => {
-            Json(SettlementResponse {
-                success: true,
-                tx_hash: Some(tx_hash),
-                message: "withdraw confirmed".to_string(),
-            })
-        }
-        Ok(None) => {
-            Json(SettlementResponse {
-                success: false,
-                tx_hash: None,
-                message: "withdraw skipped (graceful degradation)".to_string(),
-            })
-        }
+        Ok(Some(tx_hash)) => Json(SettlementResponse {
+            success: true,
+            tx_hash: Some(tx_hash),
+            message: "withdraw confirmed".to_string(),
+        }),
+        Ok(None) => Json(SettlementResponse {
+            success: false,
+            tx_hash: None,
+            message: "withdraw skipped (graceful degradation)".to_string(),
+        }),
         Err(e) => {
             error!(error = %e, "withdraw_dot failed");
             Json(SettlementResponse {
@@ -262,7 +250,12 @@ pub async fn withdraw_provider(
         });
     }
 
-    let node_id_bytes = match hex::decode(req.node_id.trim().strip_prefix("0x").unwrap_or(req.node_id.trim())) {
+    let node_id_bytes = match hex::decode(
+        req.node_id
+            .trim()
+            .strip_prefix("0x")
+            .unwrap_or(req.node_id.trim()),
+    ) {
         Ok(bytes) => {
             if bytes.len() != 32 {
                 return Json(SettlementResponse {
@@ -287,26 +280,25 @@ pub async fn withdraw_provider(
     match withdraw_provider_dot(
         &state.config.settlement.escrow_contract,
         &state.config.settlement.evm_rpc_url,
-        &state.config.settlement.evm_settlement_operator_wallet_private_key,
+        &state
+            .config
+            .settlement
+            .evm_settlement_operator_wallet_private_key,
         node_id_bytes,
         req.amount_internal,
     )
     .await
     {
-        Ok(Some(tx_hash)) => {
-            Json(SettlementResponse {
-                success: true,
-                tx_hash: Some(tx_hash),
-                message: "provider withdraw confirmed".to_string(),
-            })
-        }
-        Ok(None) => {
-            Json(SettlementResponse {
-                success: false,
-                tx_hash: None,
-                message: "provider withdraw skipped (graceful degradation)".to_string(),
-            })
-        }
+        Ok(Some(tx_hash)) => Json(SettlementResponse {
+            success: true,
+            tx_hash: Some(tx_hash),
+            message: "provider withdraw confirmed".to_string(),
+        }),
+        Ok(None) => Json(SettlementResponse {
+            success: false,
+            tx_hash: None,
+            message: "provider withdraw skipped (graceful degradation)".to_string(),
+        }),
         Err(e) => {
             error!(error = %e, "withdraw_provider_dot failed");
             Json(SettlementResponse {

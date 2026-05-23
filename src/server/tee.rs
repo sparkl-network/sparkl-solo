@@ -35,20 +35,21 @@ pub async fn verify_quote(
     _state: State<AppState>,
     JsonRequest(req): JsonRequest<VerifyQuoteRequest>,
 ) -> (StatusCode, Json<VerifyQuoteResponse>) {
-    let vendor: tee_verification::TeeVendor = match tee_verification::TeeVendor::from_str(&req.vendor) {
-        Ok(v) => v,
-        Err(_) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(VerifyQuoteResponse {
-                    valid: false,
-                    canonical_hash: None,
-                    vendor: req.vendor,
-                    error: Some("invalid vendor string".to_string()),
-                }),
-            )
-        }
-    };
+    let vendor: tee_verification::TeeVendor =
+        match tee_verification::TeeVendor::from_str(&req.vendor) {
+            Ok(v) => v,
+            Err(_) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(VerifyQuoteResponse {
+                        valid: false,
+                        canonical_hash: None,
+                        vendor: req.vendor,
+                        error: Some("invalid vendor string".to_string()),
+                    }),
+                )
+            }
+        };
 
     // Decode the base64-encoded quote
     let quote_bytes = match base64::engine::general_purpose::STANDARD.decode(&req.quote) {

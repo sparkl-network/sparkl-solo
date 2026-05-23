@@ -7,6 +7,7 @@ use anyhow::{anyhow, Result};
 use chrono::Utc;
 use sparkl_solo::config;
 use sparkl_solo::identity;
+use sparkl_solo::metrics;
 use sparkl_solo::network;
 use sparkl_solo::proxy::BackendProxy;
 use sparkl_solo::registry;
@@ -27,12 +28,19 @@ async fn main() -> Result<()> {
         .with_env_filter(EnvFilter::new(cfg.node.log_level.clone()))
         .init();
 
+    // Initialize Prometheus metrics registry.
+    metrics::init_registry();
+
     #[cfg(feature = "evm-settlement")]
     if cfg.settlement.enabled {
         let rpc = cfg.registry.effective_evm_rpc_url(&cfg.settlement);
-        let resolved = sparkl_solo::network_config::resolve_with_overrides(rpc, &cfg.registry, &cfg.settlement)
-            .await
-            .map_err(|e| e.context("resolving hub contract addresses"))?;
+        let resolved = sparkl_solo::network_config::resolve_with_overrides(
+            rpc,
+            &cfg.registry,
+            &cfg.settlement,
+        )
+        .await
+        .map_err(|e| e.context("resolving hub contract addresses"))?;
         cfg.registry.registry_contract_address =
             sparkl_solo::network_config::format_address_cfg(resolved.provider_registry);
         cfg.settlement.escrow_contract =
@@ -78,7 +86,8 @@ async fn main() -> Result<()> {
         let registry_cfg = cfg.registry.clone();
         let settlement_cfg = cfg.settlement.clone();
         tokio::spawn(async move {
-            registry::run_heartbeat_loop(identity_arc, proxy_arc, registry_cfg, settlement_cfg).await;
+            registry::run_heartbeat_loop(identity_arc, proxy_arc, registry_cfg, settlement_cfg)
+                .await;
         });
     }
 

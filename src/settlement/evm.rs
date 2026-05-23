@@ -114,18 +114,20 @@ pub(crate) async fn process_settlement_tick(
         .connect_http(rpc_url);
     let escrow_operator = SettlementEscrow::new(escrow_addr, &operator_exec);
 
-    let chain_head_opt =
-        if tee_tick_now && !tee_candidates.is_empty() && settlement.tee_settle_every_n_blocks > 0 {
-            match fetch_head_block_number(&read_provider).await {
-                Ok(h) => Some(h),
-                Err(e) => {
-                    warn!(error = %e, "failed to fetch chain head for tee_settle_every_n_blocks gate");
-                    None
-                }
+    let chain_head_opt = if tee_tick_now
+        && !tee_candidates.is_empty()
+        && settlement.tee_settle_every_n_blocks > 0
+    {
+        match fetch_head_block_number(&read_provider).await {
+            Ok(h) => Some(h),
+            Err(e) => {
+                warn!(error = %e, "failed to fetch chain head for tee_settle_every_n_blocks gate");
+                None
             }
-        } else {
-            None
-        };
+        }
+    } else {
+        None
+    };
 
     let tee_gate_ok = tee_gate_open(settlement, chain_head_opt, tee_last_eligible_block.as_ref());
 
@@ -566,13 +568,15 @@ pub async fn open_session_on_chain(
     let escrow = SettlementEscrow::new(escrow_addr, &provider);
 
     // Read the next session ID before opening (contract does id = nextSessionId++)
-    let next_id = escrow.nextSessionId().call().await.map_err(|e| {
-        anyhow::anyhow!("failed to read nextSessionId: {e}")
-    })?;
+    let next_id = escrow
+        .nextSessionId()
+        .call()
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to read nextSessionId: {e}"))?;
 
-    let chain_sid: u64 = next_id.try_into().map_err(|_| {
-        anyhow::anyhow!("nextSessionId overflowed u64")
-    })?;
+    let chain_sid: u64 = next_id
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("nextSessionId overflowed u64"))?;
 
     let tier_u8 = match tier {
         SecurityTier::BestEffort => 0u8,

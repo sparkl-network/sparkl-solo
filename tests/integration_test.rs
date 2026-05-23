@@ -96,8 +96,7 @@ fn test_config(backend_addr: SocketAddr, temp_dir: &TempDir) -> Config {
             cert_ttl_days: 7,
         },
         registry: RegistryConfig {
-            registry_contract_address: "0x0000000000000000000000000000000000000000"
-                .to_string(),
+            registry_contract_address: "0x0000000000000000000000000000000000000000".to_string(),
             evm_rpc_url: String::new(),
             heartbeat_secs: 30,
             enabled: false,
@@ -285,12 +284,7 @@ async fn identity_exposes_trust_anchor_fields() {
         .get("public_addrs")
         .and_then(Value::as_array)
         .expect("public_addrs array");
-    let expected: Vec<&str> = cfg
-        .network
-        .public_addr
-        .iter()
-        .map(String::as_str)
-        .collect();
+    let expected: Vec<&str> = cfg.network.public_addr.iter().map(String::as_str).collect();
     let got: Vec<&str> = public_addrs
         .iter()
         .map(|v| v.as_str().expect("public_addrs string"))

@@ -1,10 +1,7 @@
 //! Bootstrap contract reads for Hub EVM addresses (`SparklNetworkConfig`).
 #![cfg(feature = "evm-settlement")]
 
-use alloy::{
-    primitives::Address,
-    providers::ProviderBuilder,
-};
+use alloy::{primitives::Address, providers::ProviderBuilder};
 use anyhow::{Context, Result};
 
 use crate::config::{RegistryConfig, SettlementConfig};
@@ -17,8 +14,7 @@ use crate::config::{RegistryConfig, SettlementConfig};
 /// Until non-zero: nodes rely on `[settlement].sparkl_network_config_address`, `--sparkl-network-config-address`,
 /// or `[registry].registry_contract_address` / `[settlement].escrow_contract`
 /// from TOML/CLI (see `resolve_with_overrides`).
-pub const SPARKL_NETWORK_CONFIG_ADDRESS: &str =
-    "0x0000000000000000000000000000000000000000";
+pub const SPARKL_NETWORK_CONFIG_ADDRESS: &str = "0x0000000000000000000000000000000000000000";
 
 alloy::sol!(
     #[sol(rpc)]
@@ -72,7 +68,10 @@ pub fn parse_evm_address_field(raw: &str, field: &'static str) -> Result<Address
 }
 
 /// Read registry / escrow / oracle / config version from the bootstrap contract via JSON-RPC.
-pub async fn resolve_from_bootstrap(rpc_url: &str, bootstrap: Address) -> Result<ResolvedHubAddresses> {
+pub async fn resolve_from_bootstrap(
+    rpc_url: &str,
+    bootstrap: Address,
+) -> Result<ResolvedHubAddresses> {
     let url = rpc_url
         .trim()
         .parse::<reqwest::Url>()
@@ -109,10 +108,19 @@ pub async fn resolve_from_bootstrap(rpc_url: &str, bootstrap: Address) -> Result
     })
 }
 
-fn fallback_from_config(registry: &RegistryConfig, settlement: &SettlementConfig) -> Result<ResolvedHubAddresses> {
+fn fallback_from_config(
+    registry: &RegistryConfig,
+    settlement: &SettlementConfig,
+) -> Result<ResolvedHubAddresses> {
     Ok(ResolvedHubAddresses {
-        provider_registry: parse_evm_address_field(&registry.registry_contract_address, "registry.registry_contract_address")?,
-        settlement_escrow: parse_evm_address_field(&settlement.escrow_contract, "settlement.escrow_contract")?,
+        provider_registry: parse_evm_address_field(
+            &registry.registry_contract_address,
+            "registry.registry_contract_address",
+        )?,
+        settlement_escrow: parse_evm_address_field(
+            &settlement.escrow_contract,
+            "settlement.escrow_contract",
+        )?,
         price_oracle: Address::ZERO,
         version: 0,
     })
@@ -125,7 +133,8 @@ pub async fn resolve_with_overrides(
     registry: &RegistryConfig,
     settlement: &SettlementConfig,
 ) -> Result<ResolvedHubAddresses> {
-    let Some(bootstrap) = effective_network_config_bootstrap_address(&settlement.sparkl_network_config_address)
+    let Some(bootstrap) =
+        effective_network_config_bootstrap_address(&settlement.sparkl_network_config_address)
     else {
         return fallback_from_config(registry, settlement);
     };

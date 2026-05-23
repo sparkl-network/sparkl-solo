@@ -34,6 +34,7 @@ uuid = { version = "1", features = ["serde", "v4"] }
 crypto_box = "0.9"
 secp256k1 = { version = "0.31.1", default-features = false, features = ["recovery", "global-context"] }
 alloy-primitives = { version = "1.5.7", default-features = false, features = ["std"] }
+prometheus = "0.13"
 
 [features]
 # Default to laptop/CI-safe behavior so `cargo build` works without TPM tooling.

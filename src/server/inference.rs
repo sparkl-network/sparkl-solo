@@ -13,7 +13,9 @@ use serde_json::{json, Value};
 use tracing::{info, warn};
 
 use crate::identity;
-use crate::receipts::{encode_receipt_for_sse, generate_receipt_with_tee, hash_chunk, provider_identity};
+use crate::receipts::{
+    encode_receipt_for_sse, generate_receipt_with_tee, hash_chunk, provider_identity,
+};
 use crate::session::SessionState;
 
 use super::AppState;

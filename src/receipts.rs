@@ -170,10 +170,7 @@ pub fn verify_receipt_with_tee(
     if let Some(expected) = expected_tee_hash {
         match receipt.tee_quote_hash {
             Some(receipt_hash) if &receipt_hash == expected => {
-                tracing::info!(
-                    receipt_seq = receipt.seq,
-                    "receipt TEE provenance verified"
-                );
+                tracing::info!(receipt_seq = receipt.seq, "receipt TEE provenance verified");
             }
             Some(receipt_hash) => {
                 tracing::warn!(

@@ -15,6 +15,7 @@ pub mod attestation;
 pub mod health;
 pub mod identity;
 pub mod inference;
+pub mod metrics_handler;
 pub mod models;
 pub mod receipts;
 pub mod settlement;
@@ -35,6 +36,7 @@ pub fn router(state: AppState) -> Router {
         .route("/health", get(health::health))
         .route("/status", get(health::status))
         .route("/status/detail", get(health::status_detail))
+        .route("/metrics", get(metrics_handler::prometheus_metrics))
         .route("/identity", get(identity::identity))
         .route("/attestation/challenge", post(attestation::challenge))
         .route("/receipts/verify", post(receipts::verify))
@@ -43,9 +45,15 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/chat/completions", post(inference::chat_completions))
         .route("/tee/verify", post(tee::verify_quote))
         .route("/settlement/deposit-dot", post(settlement::deposit_dot))
-        .route("/settlement/deposit-usdc", post(settlement::deposit_usdc_as_dot))
+        .route(
+            "/settlement/deposit-usdc",
+            post(settlement::deposit_usdc_as_dot),
+        )
         .route("/settlement/withdraw-dot", post(settlement::withdraw_dot))
-        .route("/settlement/withdraw-provider", post(settlement::withdraw_provider))
+        .route(
+            "/settlement/withdraw-provider",
+            post(settlement::withdraw_provider),
+        )
         .with_state(state)
 }
 
