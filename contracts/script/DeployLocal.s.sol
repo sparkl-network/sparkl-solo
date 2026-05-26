@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import {DeploySparklBase} from "./DeploySparklBase.sol";
 import {RateSetter} from "../src/RateSetter.sol";
+import {ModelPriceOracle} from "../src/ModelPriceOracle.sol";
 import {console2} from "forge-std/console2.sol";
 
 /// @notice Local Anvil: deploy RateSetter + Sparkl core contracts; record addresses to `deployments/local.json`.
@@ -39,16 +40,30 @@ contract DeployLocal is DeploySparklBase {
             console2.log("RateSetter deployed; updater must call setRate before escrow USDC deposits");
         }
 
+        ModelPriceOracle modelPriceOracle = new ModelPriceOracle(oracleUpdater);
+        if (oracleUpdater == deployer) {
+            // MVP flat default: 10¢ input / 50¢ output per 1M tokens ($0.0001 / $0.0005 per 1k).
+            uint256 inputDefault = modelPriceInternalFromUsdPer1kMicro(100, dotPerUsdc);
+            uint256 outputDefault = modelPriceInternalFromUsdPer1kMicro(500, dotPerUsdc);
+            modelPriceOracle.setDefaultPrice(inputDefault, outputDefault);
+            console2.log("ModelPriceOracle defaultPrice seeded (10c/50c per 1M USD)");
+            console2.log("  inputPer1k internal", inputDefault);
+            console2.log("  outputPer1k internal", outputDefault);
+        } else {
+            console2.log("ModelPriceOracle deployed; updater must call setDefaultPrice");
+        }
+
         vm.stopBroadcast();
 
-        Deployment memory dep = deploySparklCoreWithOracle(deployer, attest, pk, 18, rateOracle);
+        Deployment memory dep =
+            deploySparklCoreWithOracle(deployer, attest, pk, 18, rateOracle, modelPriceOracle);
 
         string memory jsonPath = "deployments/local.json";
         if (vm.envExists("DEPLOYMENTS_OUT")) {
             jsonPath = vm.envString("DEPLOYMENTS_OUT");
         }
 
-        _writeDeployJson(dep, deployer, oracleUpdater, block.chainid, jsonPath);
+        _writeDeployJson(dep, deployer, oracleUpdater, address(modelPriceOracle), block.chainid, jsonPath);
 
         console2.log("network", "anvil-local");
         console2.log("chainId", block.chainid);
@@ -56,6 +71,7 @@ contract DeployLocal is DeploySparklBase {
         console2.log("attestationService", attest);
         console2.log("oracleUpdater", oracleUpdater);
         console2.log("RateSetter", dep.mockOracle);
+        console2.log("ModelPriceOracle", address(modelPriceOracle));
         console2.log("MockERC20 USDC", dep.mockUsdc);
         console2.log("ProviderRegistry", dep.providerRegistry);
         console2.log("SettlementEscrow", dep.settlementEscrow);
@@ -67,6 +83,7 @@ contract DeployLocal is DeploySparklBase {
         Deployment memory dep,
         address deployer,
         address oracleUpdater,
+        address modelPriceOracle,
         uint256 chainId,
         string memory path
     ) internal {
@@ -80,6 +97,7 @@ contract DeployLocal is DeploySparklBase {
         vm.serializeAddress(root, "oracleUpdater", oracleUpdater);
         vm.serializeAddress(root, "rateSetter", dep.mockOracle);
         vm.serializeAddress(root, "priceOracle", dep.mockOracle);
+        vm.serializeAddress(root, "modelPriceOracle", modelPriceOracle);
         vm.serializeAddress(root, "mockUsdc", dep.mockUsdc);
         vm.serializeAddress(root, "providerRegistry", dep.providerRegistry);
         vm.serializeAddress(root, "settlementEscrow", dep.settlementEscrow);

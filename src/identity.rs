@@ -18,31 +18,54 @@ use crate::config::Config;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NodeIdentity {
+    /// Libp2p PeerId string (`12D3Koo…`) — canonical public node id; set via [`bind_libp2p_peer_id`].
     pub peer_id: String,
     pub x25519_pubkey: [u8; 32],
-    /// Verifying key bytes for Ed25519 (Dalek / signing identity).
-    /// **Hub EVM `bytes32` node id** = [`on_chain_node_id_bytes`] of this field — do not use other hashes.
+    /// Verifying key bytes for Ed25519 (identity proofs, receipts).
     pub ed25519_pubkey: [u8; 32],
 }
 
 /// `bytes32` **`nodeId`** for `ProviderRegistry` and `SettlementEscrow` on Hub EVM.
 ///
-/// **Single canonical rule:** `keccak256(ed25519_pubkey)` over the raw 32-byte public key.
-/// Do not use SHA256(x25519_pubkey), libp2p multihash digests, or other recipes for this value.
-#[must_use]
-pub fn on_chain_node_id_bytes(ed25519_pubkey: &[u8; 32]) -> [u8; 32] {
-    keccak256(ed25519_pubkey).0
+/// **Single canonical rule:** `keccak256(libp2p PeerId multihash bytes)` (same as portal `nodeIdFromLibp2pPeerIdString`).
+pub fn on_chain_node_id_from_libp2p_peer_id(peer_id_str: &str) -> Result<[u8; 32]> {
+    let peer_id: libp2p::PeerId = peer_id_str
+        .trim()
+        .parse()
+        .map_err(|e| anyhow!("invalid libp2p peer_id `{peer_id_str}`: {e}"))?;
+    Ok(keccak256(peer_id.to_bytes()).0)
 }
 
 /// `0x`-prefixed 64-hex **`nodeId`** (same JSON field as **`GET /identity`** on the node).
-#[must_use]
-pub fn on_chain_node_id_hex(ed25519_pubkey: &[u8; 32]) -> String {
-    format!("0x{}", hex::encode(on_chain_node_id_bytes(ed25519_pubkey)))
+pub fn on_chain_node_id_hex_from_peer_id(peer_id_str: &str) -> Result<String> {
+    let bytes = on_chain_node_id_from_libp2p_peer_id(peer_id_str)?;
+    Ok(format!("0x{}", hex::encode(bytes)))
 }
 
 #[must_use]
 pub fn on_chain_node_id_from_identity(id: &NodeIdentity) -> [u8; 32] {
-    on_chain_node_id_bytes(&id.ed25519_pubkey)
+    on_chain_node_id_from_libp2p_peer_id(&id.peer_id)
+        .unwrap_or_else(|e| panic!("invalid libp2p peer_id on identity (bind_libp2p_peer_id): {e}"))
+}
+
+/// After the libp2p swarm starts, set the canonical `peer_id` used for HTTP, receipts, and on-chain ids.
+pub fn bind_libp2p_peer_id(peer_id: &str) -> Result<NodeIdentity> {
+    let _ = on_chain_node_id_from_libp2p_peer_id(peer_id)?;
+    let mut loaded = require_loaded()?;
+    loaded.public.peer_id = peer_id.trim().to_string();
+    let public_path = loaded.data_dir.join("identity.json");
+    fs::write(
+        &public_path,
+        serde_json::to_vec_pretty(&loaded.public).context("failed to write identity.json")?,
+    )
+    .context("failed to persist libp2p peer_id")?;
+    let out = loaded.public.clone();
+    let cell = IDENTITY.get_or_init(|| RwLock::new(None));
+    let mut guard = cell
+        .write()
+        .map_err(|_| anyhow!("identity lock poisoned"))?;
+    *guard = Some(loaded);
+    Ok(out)
 }
 
 /// Deterministic X25519 encryption secret for `version >= 1` (rotation without extra backup).
@@ -210,13 +233,9 @@ pub async fn load_or_generate(config: &Config) -> Result<NodeIdentity> {
         let signing = SigningKey::from_bytes(&ed25519_secret);
         let ed_pub = signing.verifying_key().to_bytes();
 
-        let peer_prefix = match key_source {
-            KeySource::Software => "mock",
-            KeySource::TpmRng => "tpm",
-        };
-        let peer_id = format!("{peer_prefix}-{}", hex::encode(&x_public[..8]));
+        // `peer_id` is the libp2p PeerId string; filled by [`bind_libp2p_peer_id`] after swarm start.
         let public = NodeIdentity {
-            peer_id,
+            peer_id: String::new(),
             x25519_pubkey: x_public,
             ed25519_pubkey: ed_pub,
         };
@@ -526,20 +545,26 @@ fn _identity_dir(data_dir: &Path) -> PathBuf {
 
 #[cfg(test)]
 mod on_chain_node_id_tests {
-    use super::{on_chain_node_id_bytes, on_chain_node_id_hex};
+    use super::{on_chain_node_id_from_libp2p_peer_id, on_chain_node_id_hex_from_peer_id};
     use alloy_primitives::keccak256;
+    use libp2p::identity::Keypair;
 
     #[test]
-    fn on_chain_node_id_matches_keccak256_of_ed25519_pubkey() {
-        let pk: [u8; 32] = std::array::from_fn(|i| (i as u8).wrapping_mul(17));
-        let expected = keccak256(pk);
-        assert_eq!(on_chain_node_id_bytes(&pk), expected.0);
+    fn on_chain_node_id_matches_keccak256_of_libp2p_multihash() {
+        let key = Keypair::generate_ed25519();
+        let peer_id = libp2p::PeerId::from(key.public());
+        let expected = keccak256(peer_id.to_bytes());
+        assert_eq!(
+            on_chain_node_id_from_libp2p_peer_id(&peer_id.to_string()).unwrap(),
+            expected.0
+        );
     }
 
     #[test]
     fn on_chain_node_id_hex_format() {
-        let pk = [0xabu8; 32];
-        let h = on_chain_node_id_hex(&pk);
+        let key = Keypair::generate_ed25519();
+        let peer_id = libp2p::PeerId::from(key.public()).to_string();
+        let h = on_chain_node_id_hex_from_peer_id(&peer_id).unwrap();
         assert!(h.starts_with("0x"));
         assert_eq!(h.len(), 2 + 64);
     }

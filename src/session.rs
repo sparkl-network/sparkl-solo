@@ -50,6 +50,12 @@ pub struct Session {
     /// Tokens-output watermark after the last successful `TEE_VERIFIED` streaming partial settle on escrow.
     #[serde(default)]
     pub evm_tee_anchor_tokens: u64,
+    /// Input tokens last synced via `recordUsage` (chain delta watermark).
+    #[serde(default)]
+    pub evm_input_tokens_synced: u64,
+    /// Output tokens last synced via `recordUsage` (chain delta watermark).
+    #[serde(default)]
+    pub evm_output_tokens_synced: u64,
     /// Canonical TEE quote hash for this session (32-byte SHA-256 of the TEE quote).
     /// When present, all receipts in this session must carry the same hash for Tier A verification.
     #[serde(default)]
@@ -111,6 +117,8 @@ impl SessionManager {
             security_tier,
             evm_session_id,
             evm_tee_anchor_tokens: 0,
+            evm_input_tokens_synced: 0,
+            evm_output_tokens_synced: 0,
             tee_quote_hash,
         };
         let _ = self.store.save_session(&session);
@@ -118,21 +126,19 @@ impl SessionManager {
         id
     }
 
-    pub fn record_chunk(
-        &self,
-        id: Uuid,
-        tokens: u32,
-        _content_hash: [u8; 32],
-        price_per_m_output_tokens: u64,
-    ) {
+    pub fn record_chunk(&self, id: Uuid, tokens: u32, _content_hash: [u8; 32]) {
         if let Some(entry) = self.sessions.get(&id) {
             let mut guard = entry.lock().expect("session lock poisoned");
             guard.tokens_output = guard.tokens_output.saturating_add(tokens as u64);
-            // micro_usd = tokens * (micro_usd per million tokens) / 1_000_000
-            let chunk_cost = (tokens as u64)
-                .saturating_mul(price_per_m_output_tokens)
-                .saturating_div(1_000_000);
-            guard.amount_micro_usd = guard.amount_micro_usd.saturating_add(chunk_cost);
+            let _ = self.store.save_session(&guard);
+        }
+    }
+
+    pub fn update_evm_tokens_synced(&self, id: Uuid, input: u64, output: u64) {
+        if let Some(entry) = self.sessions.get(&id) {
+            let mut guard = entry.lock().expect("session lock poisoned");
+            guard.evm_input_tokens_synced = input;
+            guard.evm_output_tokens_synced = output;
             let _ = self.store.save_session(&guard);
         }
     }

@@ -5,8 +5,9 @@ use axum::Json;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
-use crate::attestation::truncate_hash_display;
+use crate::attestation::{refresh_nras_tee_report_hash, truncate_hash_display};
 use crate::identity;
+use crate::registry::registry_capabilities_json;
 
 use super::AppState;
 
@@ -44,8 +45,17 @@ pub async fn identity(State(state): State<AppState>) -> Response {
     };
     let ed25519_pubkey_bytes = node_identity.ed25519_pubkey;
 
-    // -- 2. Derive on-chain nodeId (single canonical rule: see identity::on_chain_node_id_bytes)
-    let node_id_hex = identity::on_chain_node_id_hex(&ed25519_pubkey_bytes);
+    // -- 2. Derive on-chain nodeId from libp2p PeerId (see identity::on_chain_node_id_from_libp2p_peer_id)
+    let node_id_hex = match identity::on_chain_node_id_hex_from_peer_id(&node_identity.peer_id) {
+        Ok(h) => h,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": format!("invalid libp2p peer_id: {e}") })),
+            )
+                .into_response();
+        }
+    };
 
     // -- 3. Fetch chain head block hash (if EVM configured)
     let chain_proof = if state.config.settlement.enabled
@@ -161,6 +171,14 @@ pub async fn identity(State(state): State<AppState>) -> Response {
             "cert_ttl_days": state.config.attestation.cert_ttl_days,
         });
     }
+
+    let attestation_hash = refresh_nras_tee_report_hash(
+        &state.config.attestation,
+        Some(node_identity.peer_id.clone()),
+        state.nras_state.clone(),
+    )
+    .await;
+    body["registry_capabilities"] = registry_capabilities_json(&attestation_hash);
 
     Json(body).into_response()
 }

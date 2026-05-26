@@ -10,6 +10,7 @@ contract SparklNetworkConfig {
     address public providerRegistry;
     address public settlementEscrow;
     address public priceOracle;
+    address public modelPriceOracle;
 
     uint64 public version;
 
@@ -21,6 +22,7 @@ contract SparklNetworkConfig {
         address indexed providerRegistry,
         address indexed settlementEscrow,
         address indexed priceOracle,
+        address modelPriceOracle,
         uint64 version_
     );
 
@@ -34,14 +36,20 @@ contract SparklNetworkConfig {
         owner = initialOwner;
     }
 
-    function setAddresses(address registry_, address escrow_, address oracle_) external onlyOwner {
+    function setAddresses(
+        address registry_,
+        address escrow_,
+        address oracle_,
+        address modelPriceOracle_
+    ) external onlyOwner {
         providerRegistry = registry_;
         settlementEscrow = escrow_;
         priceOracle = oracle_;
+        modelPriceOracle = modelPriceOracle_;
         unchecked {
             version += 1;
         }
-        emit AddressesUpdated(registry_, escrow_, oracle_, version);
+        emit AddressesUpdated(registry_, escrow_, oracle_, modelPriceOracle_, version);
     }
 
     function transferOwnership(address newOwner) external onlyOwner {

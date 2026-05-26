@@ -16,7 +16,6 @@ contract ProviderRegistry is IProviderRegistry {
     mapping(bytes32 nodeId => NodeInfo) public nodes;
     mapping(bytes32 nodeId => address operator) public nodeOperator;
     mapping(address operator => bytes32[] nodeIds) internal _operatorNodes;
-    mapping(bytes32 nodeId => mapping(SecurityTier tier => uint256 pricePer1k)) internal _pricePer1k;
 
     mapping(bytes32 nodeId => mapping(uint32 version => EncryptionKey)) public encryptionKeys;
 
@@ -29,7 +28,6 @@ contract ProviderRegistry is IProviderRegistry {
     event NodeFeeUpdated(bytes32 indexed nodeId, uint16 feeBps);
     event NodeMetadataUpdated(bytes32 indexed nodeId, string metadataURI);
     event TEEProofSet(bytes32 indexed nodeId, bytes32 teeReportHash);
-    event PricingUpdated(bytes32 indexed nodeId, SecurityTier tier, uint256 pricePer1kTokens);
     event NodeChilled(bytes32 indexed nodeId, address indexed operator);
     event NodeMarkedDefunct(bytes32 indexed nodeId, address indexed operator);
     event NodePurged(bytes32 indexed nodeId, address indexed operator);
@@ -236,8 +234,6 @@ contract ProviderRegistry is IProviderRegistry {
         address op = nodeOperator[nodeId];
         uint32 lastVer = n.encryptionKeysLastVersion;
         _removeOperatorNode(op, nodeId);
-        _pricePer1k[nodeId][SecurityTier.BEST_EFFORT] = 0;
-        _pricePer1k[nodeId][SecurityTier.TEE_VERIFIED] = 0;
         for (uint32 v = 1; v <= lastVer; v++) {
             delete encryptionKeys[nodeId][v];
         }
@@ -292,16 +288,6 @@ contract ProviderRegistry is IProviderRegistry {
         emit TEEProofSet(nodeId, teeReportHash);
     }
 
-    /// @notice Declared price for `tier` per 1_000 tokens (internal DOT units), matching `SettlementEscrow` accounting.
-    function setNodePricing(bytes32 nodeId, SecurityTier tier, uint256 pricePer1kTokens)
-        external
-        onlyNodeOperator(nodeId)
-    {
-        if (nodeOperator[nodeId] == address(0)) revert NodeNotRegistered();
-        _pricePer1k[nodeId][tier] = pricePer1kTokens;
-        emit PricingUpdated(nodeId, tier, pricePer1kTokens);
-    }
-
     /// @dev Argument is `nodeId`. Name kept for ABI compatibility with existing integrations.
     function getProvider(bytes32 nodeId) external view returns (NodeInfo memory) {
         return nodes[nodeId];
@@ -309,10 +295,6 @@ contract ProviderRegistry is IProviderRegistry {
 
     function getMetadataURI(bytes32 nodeId) external view returns (string memory) {
         return nodes[nodeId].metadataURI;
-    }
-
-    function getPricePer1k(bytes32 nodeId, SecurityTier tier) external view returns (uint256) {
-        return _pricePer1k[nodeId][tier];
     }
 
     /// @notice Used by escrow and off-chain aggregators to enforce tier eligibility.

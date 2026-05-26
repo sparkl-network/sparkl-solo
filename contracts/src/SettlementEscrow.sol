@@ -4,6 +4,7 @@ pragma solidity ^0.8.20;
 import {SecurityTier} from "./SecurityTypes.sol";
 import {IProviderRegistry} from "./interfaces/IProviderRegistry.sol";
 import {IPriceOracle} from "./interfaces/IPriceOracle.sol";
+import {IModelPriceOracle} from "./interfaces/IModelPriceOracle.sol";
 import {IERC20} from "./interfaces/IERC20.sol";
 
 /// @title SettlementEscrow
@@ -15,10 +16,18 @@ contract SettlementEscrow {
 
     IProviderRegistry public immutable registry;
     IPriceOracle public immutable priceOracle;
+    IModelPriceOracle public immutable modelPriceOracle;
     IERC20 public immutable usdc;
 
     /// @notice Smallest-units per whole native token on this chain (Hub DOT: 10 = Planck; standard EVM dev: 18 = wei).
     uint8 public immutable nativeDotDecimals;
+
+    /// @notice TEE tier billing multiplier in basis points (default 15_000 = 1.5x).
+    uint256 public teePriceMultiplierBps = 15_000;
+
+    uint256 internal constant BPS_DENOM = 10_000;
+    uint256 internal constant MIN_TEE_MULTIPLIER_BPS = 10_000;
+    uint256 internal constant MAX_TEE_MULTIPLIER_BPS = 30_000;
 
     /// @notice Privileged role that finalizes settlement splits (`settleByOperator*`). Set by registry governance (`registry.owner()`).
     address public settlementOperator;
@@ -38,6 +47,8 @@ contract SettlementEscrow {
         address user;
         /// @notice Registry node key (e.g. Substrate PeerId hash), not an EVM address.
         bytes32 nodeId;
+        /// @notice keccak256(abi.encodePacked(modelName)) — billed via ModelPriceOracle.
+        bytes32 modelId;
         SecurityTier tier;
         uint256 lockedInternal;
         uint256 usageRecorded;
@@ -46,6 +57,8 @@ contract SettlementEscrow {
         uint256 openingInternal;
         uint64 openedAt;
         bool settled;
+        uint64 inputTokensRecorded;
+        uint64 outputTokensRecorded;
     }
 
     uint256 public nextSessionId;
@@ -62,9 +75,16 @@ contract SettlementEscrow {
         address indexed user,
         bytes32 indexed nodeId,
         SecurityTier tier,
+        bytes32 modelId,
         uint256 lockedInternal
     );
-    event UsageRecorded(uint256 indexed sessionId, uint256 usageTotalInternal);
+    event UsageRecorded(
+        uint256 indexed sessionId,
+        uint256 inputTokensDelta,
+        uint256 outputTokensDelta,
+        uint256 usageTotalInternal
+    );
+    event TeePriceMultiplierUpdated(uint256 previousBps, uint256 nextBps);
     event SessionFundsReleased(
         uint256 indexed sessionId, uint256 toProvider, uint256 toUser, uint256 remainingLockedInternal
     );
@@ -85,6 +105,8 @@ contract SettlementEscrow {
     error NotSettlementOperator();
     error NotRegistryOwner();
     error OpenSessionCounterUnderflow();
+    error BadTokenDelta();
+    error BadTeeMultiplier();
 
     modifier onlySettlementOperator() {
         if (msg.sender != settlementOperator) revert NotSettlementOperator();
@@ -94,16 +116,26 @@ contract SettlementEscrow {
     constructor(
         IProviderRegistry registry_,
         IPriceOracle priceOracle_,
+        IModelPriceOracle modelPriceOracle_,
         IERC20 usdc_,
         uint8 nativeDotDecimals_
     ) {
         registry = registry_;
         priceOracle = priceOracle_;
+        modelPriceOracle = modelPriceOracle_;
         usdc = usdc_;
         if (nativeDotDecimals_ == 0 || nativeDotDecimals_ > INTERNAL_DOT_DECIMALS) {
             revert BadNativeDecimals();
         }
         nativeDotDecimals = nativeDotDecimals_;
+    }
+
+    /// @notice Registry owner sets the TEE tier price multiplier (10_000 = 1x, 15_000 = 1.5x).
+    function setTeePriceMultiplierBps(uint256 bps) external {
+        if (msg.sender != registry.owner()) revert NotRegistryOwner();
+        if (bps < MIN_TEE_MULTIPLIER_BPS || bps > MAX_TEE_MULTIPLIER_BPS) revert BadTeeMultiplier();
+        emit TeePriceMultiplierUpdated(teePriceMultiplierBps, bps);
+        teePriceMultiplierBps = bps;
     }
 
     /// @notice Registry owner assigns the settlement operator (may be `address(0)` to disable operator settles).
@@ -180,21 +212,30 @@ contract SettlementEscrow {
     /// @notice Opens a tier-aware session, locking `amountInternal` for `(msg.sender, nodeId)`.
     /// @dev Pass `msg.value == 0` to consume from `dotBalances`, otherwise `msg.value` must equal `_internalToNative(amountInternal)`
     ///      and the escrow credits native into the lock without touching `dotBalances`.
-    function openSession(bytes32 nodeId, SecurityTier tier, uint256 amountInternal) external payable {
+    function openSession(bytes32 nodeId, SecurityTier tier, bytes32 modelId, uint256 amountInternal)
+        external
+        payable
+    {
         if (amountInternal == 0) revert BadAmount();
+        if (modelId == bytes32(0)) revert BadAmount();
         if (!registry.supportsTier(nodeId, tier)) revert UnsupportedTier();
+        // Fail fast if oracle has no effective price for this model.
+        modelPriceOracle.getEffectivePrice(modelId);
 
         uint256 id = nextSessionId++;
         sessions[id] = Session({
             user: msg.sender,
             nodeId: nodeId,
+            modelId: modelId,
             tier: tier,
             lockedInternal: amountInternal,
             usageRecorded: 0,
             paidToProviderInternal: 0,
             openingInternal: amountInternal,
             openedAt: uint64(block.timestamp),
-            settled: false
+            settled: false,
+            inputTokensRecorded: 0,
+            outputTokensRecorded: 0
         });
 
         totalLockedInternal += amountInternal;
@@ -209,18 +250,31 @@ contract SettlementEscrow {
             internalCirculating += amountInternal;
         }
 
-        emit SessionOpened(id, msg.sender, nodeId, tier, amountInternal);
+        emit SessionOpened(id, msg.sender, nodeId, tier, modelId, amountInternal);
     }
 
-    /// @notice Provider records cumulative usage toward off-chain metering (does not move funds).
-    function recordUsage(uint256 sessionId, uint256 usageDeltaInternal) external {
+    /// @notice Provider records token usage; escrow prices via ModelPriceOracle.
+    function recordUsage(uint256 sessionId, uint256 inputTokensDelta, uint256 outputTokensDelta)
+        external
+    {
         Session storage s = sessions[sessionId];
         if (s.user == address(0)) revert UnknownSession();
         if (registry.nodeOperator(s.nodeId) != msg.sender) revert NotSessionProvider();
         if (s.settled) revert AlreadySettled();
-        if (usageDeltaInternal == 0) revert BadAmount();
-        s.usageRecorded += usageDeltaInternal;
-        emit UsageRecorded(sessionId, s.usageRecorded);
+        if (inputTokensDelta == 0 && outputTokensDelta == 0) revert BadTokenDelta();
+
+        (uint256 inputPer1k, uint256 outputPer1k,) = modelPriceOracle.getEffectivePrice(s.modelId);
+
+        uint256 cost = (inputTokensDelta * inputPer1k) / 1000 + (outputTokensDelta * outputPer1k) / 1000;
+        if (s.tier == SecurityTier.TEE_VERIFIED) {
+            cost = (cost * teePriceMultiplierBps) / BPS_DENOM;
+        }
+
+        s.usageRecorded += cost;
+        s.inputTokensRecorded += uint64(inputTokensDelta);
+        s.outputTokensRecorded += uint64(outputTokensDelta);
+
+        emit UsageRecorded(sessionId, inputTokensDelta, outputTokensDelta, s.usageRecorded);
     }
 
     /// @notice Releases up to remaining lock: pays provider escrow credit and refunds user balance (session user only — escape hatch).

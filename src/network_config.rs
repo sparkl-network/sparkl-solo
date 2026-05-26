@@ -27,6 +27,7 @@ pub struct ResolvedHubAddresses {
     pub provider_registry: Address,
     pub settlement_escrow: Address,
     pub price_oracle: Address,
+    pub model_price_oracle: Address,
     pub version: u64,
 }
 
@@ -94,6 +95,11 @@ pub async fn resolve_from_bootstrap(
         .call()
         .await
         .context("SparklNetworkConfig.priceOracle eth_call failed")?;
+    let model_price_oracle = cfg
+        .modelPriceOracle()
+        .call()
+        .await
+        .context("SparklNetworkConfig.modelPriceOracle eth_call failed")?;
     let version = cfg
         .version()
         .call()
@@ -104,6 +110,7 @@ pub async fn resolve_from_bootstrap(
         provider_registry,
         settlement_escrow,
         price_oracle,
+        model_price_oracle,
         version: version as u64,
     })
 }
@@ -122,6 +129,7 @@ fn fallback_from_config(
             "settlement.escrow_contract",
         )?,
         price_oracle: Address::ZERO,
+        model_price_oracle: Address::ZERO,
         version: 0,
     })
 }

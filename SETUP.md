@@ -2,7 +2,7 @@
 
 This guide explains how to run a `sparkl-solo` node in a production-like environment, including config options, network exposure, and port forwarding.
 
-**Settlement / registry target:** on-chain **Polkadot Hub EVM** (`pallet_revive`) — native **DOT** escrow first; **USDC** later via the Hub **ERC-20 precompile**. See [`contracts/`](./contracts/) (`SettlementEscrow`, `ProviderRegistry`, `IPriceOracle` implementations). Off-chain: attestation service (TEE verification → on-chain flags), aggregators (tier + price routing). Unicity-related settings in config remain **legacy / optional** where the code still supports them.
+**Settlement / registry target:** on-chain **Polkadot Hub EVM** (`pallet_revive`) — native **DOT** escrow first; **USDC** later via the Hub **ERC-20 precompile**. See [`contracts/`](./contracts/) (`SettlementEscrow`, `ProviderRegistry`, `ModelPriceOracle`, `IPriceOracle` / `RateSetter`). Inference is billed from **`ModelPriceOracle`** (off-chain updater: `sparkl-oracle-model-price`); there is no `[pricing]` section in node config. Off-chain: attestation service (TEE verification → on-chain flags), aggregators (tier + price routing). Unicity-related settings in config remain **legacy / optional** where the code still supports them.
 
 `sparkl-solo` is still a prototype. Use this as an operational baseline, then harden further for your environment.
 
@@ -78,10 +78,7 @@ epoch_secs = 600
 evm_rpc_url = "https://YOUR_POLKADOT_HUB_EVM_RPC"
 escrow_contract = "0x0000000000000000000000000000000000000000"
 enabled = false
-
-[pricing]
-micro_usd_per_m_input_tokens = 100
-micro_usd_per_m_output_tokens = 780
+# session_min_deposit, tee_tick_secs, operator keys — see config/default.toml and DEVELOPER.md
 ```
 
 ## 4) Config options reference
@@ -114,8 +111,7 @@ micro_usd_per_m_output_tokens = 780
 - `backend.timeout_secs`: backend request timeout.
 - `attestation.*`: attestation endpoint and mode toggle.
 - `registry.*`: **Hub EVM** — `registry_contract_address` (`ProviderRegistry`), optional `evm_rpc_url` (empty = use `settlement.evm_rpc_url`), `heartbeat_secs`, `enabled`. Operator signing uses `settlement.evm_provider_wallet_private_key` (not duplicated on `[registry]`).
-- `settlement.*`: escrow / epoch controls. `evm_rpc_url` should point at **Polkadot Hub EVM**; `escrow_contract` is the deployed **SettlementEscrow** (or successor) address.
-- `pricing.*`: local pricing values used by settlement/accounting logic.
+- `settlement.*`: escrow / epoch controls. `evm_rpc_url` should point at **Polkadot Hub EVM**; `escrow_contract` is the deployed **SettlementEscrow** address. Token usage is reported on-chain; **`SettlementEscrow`** prices sessions via **`ModelPriceOracle`** (not local TOML). See [DEVELOPER.md](./DEVELOPER.md) and [docs/Wallets-and-Keys.md](./docs/Wallets-and-Keys.md).
 
 ## 5) Model exposure policy (important)
 
@@ -184,9 +180,6 @@ Available CLI overrides (grouped by config section):
   - `--evm-rpc-url`
   - `--escrow-contract`
   - `--settlement-enabled` (`true|false`)
-- `pricing.*`
-  - `--price-input-micro-usd-per-m`
-  - `--price-output-micro-usd-per-m`
 
 If provided, CLI values override config file values.
 

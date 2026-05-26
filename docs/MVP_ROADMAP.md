@@ -10,7 +10,7 @@ Build a **working, self-contained sparkl-solo provider node** that can:
 5. Verify TEE attestation for Tier A providers
 6. Discover and route through the P2P network
 
-**Hub EVM `nodeId`:** canonical **`bytes32` = `keccak256(ed25519_pubkey)`** (see `identity::on_chain_node_id_*` and **`GET /identity`**); do not derive registry/escrow ids from x25519 or libp2p multihash.
+**Hub EVM `nodeId`:** canonical **`bytes32` = `keccak256(libp2p PeerId multihash)`** (see `identity::on_chain_node_id_*` and **`GET /identity`**); **`peer_id`** in JSON is the libp2p string.
 
 ### How to read this document
 
@@ -28,7 +28,8 @@ Build a **working, self-contained sparkl-solo provider node** that can:
 
 | Goal Area | What's Promised |
 |---|---|
-| Provider Registry | Full on-chain registration, heartbeat, tier flags, pricing |
+| Provider Registry | Full on-chain registration, heartbeat, tier flags, tier eligibility |
+| Model pricing | Network reference prices via `ModelPriceOracle` (off-chain updater) |
 | Settlement | Deposit/withdraw DOT/USDC, epoch batching, payout via escrow |
 | Attestation | TEE quote verification (NRAS), TEE proof submission to registry |
 | Inference Proxy | OpenAI-compatible `/v1/chat/completions`, streaming SSE |
@@ -49,9 +50,10 @@ Build a **working, self-contained sparkl-solo provider node** that can:
 | Session accounting | DONE | Real `amount_micro_usd` per session, duration tracking |
 | TPM attestation | STUB | Local mock/TPM challenge/verify endpoints, swtpm dev path |
 | TEE attestation service | STUB | `services/tee-attestation-stub/` - Node.js stub server |
-| Provider Registry contract | DONE | Solidity: registration, heartbeat, tier flags, pricing, TEE evidence |
-| SettlementEscrow contract | DONE | Solidity: deposit/withdraw, epoch settlement, open sessions |
-| Price Oracle (DIAPriceOracle) | DONE | DOT/USD + USDC/USD feed → USDC/DOT conversion |
+| Provider Registry contract | DONE | Solidity: registration, heartbeat, tier flags, TEE evidence (no per-node pricing) |
+| SettlementEscrow contract | DONE | Solidity: deposit/withdraw, epoch settlement, open sessions; bills via `ModelPriceOracle` |
+| ModelPriceOracle contract | DONE | Per-model + default reference pricing; `sparkl-oracle-model-price` pushes rates |
+| Price Oracle (DIAPriceOracle / RateSetter) | DONE | DOT/USD + USDC/USD feed → USDC/DOT conversion for model oracle |
 | Price Oracle (Pyth) | PLACEHOLDER | Reverts with `NotImplemented()` |
 | EVM settlement (Rust) | PARTIAL | `settlement/evm.rs` (feature `evm-settlement`): `recordUsage`, operator `settleByOperatorFull` / `settleByOperatorPartial`, read `ProviderRegistry.nodeOperator`, session state; **no** deposit/withdraw in Rust; **`open_session_on_chain()` wired into inference handler — `Session.evm_session_id` now set from `openSession` call** |
 | Registry (Rust) | STUB | `src/registry.rs` — Hub-oriented stub; `register()` returns `stub-proof`, heartbeat logs only (no `ProviderRegistry` contract calls yet); config: `registry_contract_address`, optional `registry.evm_rpc_url` |
@@ -78,9 +80,9 @@ Work is ordered by **dependency**: settlement client gaps and registry integrati
 **Done** (requires `--features evm-settlement`, `settlement.enabled`, keys + contract address):
 - [x] `settlement/` wired into `main.rs` (`run_epoch_loop` spawns when settlement enabled)
 - [x] `evm-settlement` feature gates Alloy + `settlement/evm.rs`
-- [x] Config: `evm_rpc_url`, `escrow_contract`, `evm_provider_wallet_private_key`, `evm_settlement_operator_wallet_private_key`, TEE/usage tuning (`tee_tick_secs`, `usage_internal_units_per_micro_usd`, etc.) — see `config/default.toml`
+- [x] Config: `evm_rpc_url`, `escrow_contract`, `evm_provider_wallet_private_key`, `evm_settlement_operator_wallet_private_key`, TEE tuning (`tee_tick_secs`, `tee_settle_tokens_threshold`, `session_min_deposit`, etc.) — see `config/default.toml`
 - [x] Contract ABI via `abi/*.json` + `alloy::sol!` in `evm.rs`
-- [x] Session settlement path: provider `recordUsage`, operator `settleByOperatorFull` / `settleByOperatorPartial`, read `sessions(sessionId)`, `registry()` → `ProviderRegistry.nodeOperator` validation, usage tolerance + optional block-gated TEE cadence
+- [x] Session settlement path: provider `recordUsage`, operator `settleByOperatorFull` / `settleByOperatorPartial`, read `sessions(sessionId)`, `registry()` → `ProviderRegistry.nodeOperator` validation, optional block-gated TEE cadence
 - [x] Degrade gracefully: RPC/keys/operator mismatch → warn and skip tick
 
 **Still missing:**

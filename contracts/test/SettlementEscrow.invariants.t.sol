@@ -7,6 +7,7 @@ import {Test} from "forge-std/Test.sol";
 import {ProviderRegistry} from "../src/ProviderRegistry.sol";
 import {SettlementEscrow} from "../src/SettlementEscrow.sol";
 import {MockOracle} from "../src/mocks/MockOracle.sol";
+import {MockModelPriceOracle} from "../src/mocks/MockModelPriceOracle.sol";
 import {MockERC20} from "../src/mocks/MockERC20.sol";
 import {SecurityTier} from "../src/SecurityTypes.sol";
 
@@ -79,6 +80,8 @@ contract SettlementEscrowInvariantHandler is Test {
         escrow.depositDot{value: nativeTopUp}();
     }
 
+    bytes32 internal constant TEST_MODEL = keccak256(abi.encodePacked("invariant-model"));
+
     function step_openSession(uint256 lockAmt, bool teeTier, bool pickProvider1) external {
         address p = pickProvider1 ? provider1 : provider0;
         SecurityTier t = teeTier ? SecurityTier.TEE_VERIFIED : SecurityTier.BEST_EFFORT;
@@ -86,7 +89,7 @@ contract SettlementEscrowInvariantHandler is Test {
 
         _ensureAliceSpendable(lockAmt);
         vm.prank(alice);
-        try escrow.openSession(_nid(p), t, lockAmt) {
+        try escrow.openSession(_nid(p), t, TEST_MODEL, lockAmt) {
             _openedLockSum[p] += lockAmt;
         } catch {}
     }
@@ -95,14 +98,14 @@ contract SettlementEscrowInvariantHandler is Test {
         uint256 n = escrow.nextSessionId();
         if (n == 0) return;
         uint256 sid = bound(seed, 0, n - 1);
-        (,,,,,,,, bool settled) = escrow.sessions(sid);
+        (,,,,,,,,, bool settled,,) = escrow.sessions(sid);
         if (settled) return;
 
-        (, bytes32 nodeId,,,,,,,) = escrow.sessions(sid);
-        usageAmt = bound(usageAmt, 1, (10 ** 18));
+        (, bytes32 nodeId,,,,,,,,,,) = escrow.sessions(sid);
+        uint256 inputTok = bound(usageAmt, 1, 1_000_000);
 
         vm.prank(reg.nodeOperator(nodeId));
-        try escrow.recordUsage(sid, usageAmt) {} catch {}
+        try escrow.recordUsage(sid, inputTok, 0) {} catch {}
     }
 
     function step_settlePartial(uint256 seed, uint256 a, uint256 b) external {
@@ -111,7 +114,7 @@ contract SettlementEscrowInvariantHandler is Test {
         uint256 sid = seed % n;
         (
             address user,
-            bytes32 nodeId,, uint256 locked,,,,, bool settled
+            bytes32 nodeId,,, uint256 locked,,,,, bool settled,,
         ) = escrow.sessions(sid);
         if (settled || locked == 0 || user != alice) return;
 
@@ -132,7 +135,7 @@ contract SettlementEscrowInvariantHandler is Test {
         uint256 sid = seed % n;
         (
             address user,
-            bytes32 nodeId,, uint256 locked,,,,, bool settled
+            bytes32 nodeId,,, uint256 locked,,,,, bool settled,,
         ) = escrow.sessions(sid);
         if (settled || locked == 0 || user != alice) return;
 
@@ -177,6 +180,8 @@ contract SettlementEscrowInvariantHandler is Test {
 }
 
 contract SettlementEscrowInvariantTest is StdInvariant, Test {
+    bytes32 internal constant TEST_MODEL = keccak256(abi.encodePacked("invariant-model"));
+
     ProviderRegistry internal reg;
     MockOracle internal oracle;
     MockERC20 internal usdc;
@@ -201,9 +206,16 @@ contract SettlementEscrowInvariantTest is StdInvariant, Test {
         oracle.set(1_340_000);
 
         usdc = new MockERC20("USDC", 6);
-        esc = new SettlementEscrow(reg, oracle, usdc, 10);
+
+        MockModelPriceOracle modelOracle = new MockModelPriceOracle();
+        modelOracle.setModel(TEST_MODEL, 1e15, 1e15);
+        modelOracle.setDefault(1e15, 1e15);
+
+        esc = new SettlementEscrow(reg, oracle, modelOracle, usdc, 10);
         vm.prank(owner);
         reg.setSettlementEscrow(address(esc));
+        vm.prank(owner);
+        esc.setTeePriceMultiplierBps(10_000);
         handler = new SettlementEscrowInvariantHandler(esc, reg, oracle, usdc, alice, p0, p1, attestation);
 
         targetContract(address(handler));

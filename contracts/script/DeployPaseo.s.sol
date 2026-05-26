@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import {DeploySparklBase} from "./DeploySparklBase.sol";
 import {RateSetter} from "../src/RateSetter.sol";
+import {ModelPriceOracle} from "../src/ModelPriceOracle.sol";
 import {console2} from "forge-std/console2.sol";
 
 /// @notice Paseo (Hub testnet EVM): deploy RateSetter + Sparkl core contracts; record addresses to `deployments/paseo.json`.
@@ -34,16 +35,19 @@ contract DeployPaseo is DeploySparklBase {
             console2.log("RateSetter deployed; updater must call setRate before escrow USDC deposits");
         }
 
+        ModelPriceOracle modelPriceOracle = new ModelPriceOracle(oracleUpdater);
+
         vm.stopBroadcast();
 
-        Deployment memory dep = deploySparklCoreWithOracle(deployer, attest, pk, 10, rateOracle);
+        Deployment memory dep =
+            deploySparklCoreWithOracle(deployer, attest, pk, 10, rateOracle, modelPriceOracle);
 
         string memory jsonPath = "deployments/paseo.json";
         if (vm.envExists("DEPLOYMENTS_OUT")) {
             jsonPath = vm.envString("DEPLOYMENTS_OUT");
         }
 
-        _writeDeployJson(dep, deployer, block.chainid, jsonPath);
+        _writeDeployJson(dep, deployer, oracleUpdater, address(modelPriceOracle), block.chainid, jsonPath);
 
         console2.log("network", "paseo");
         console2.log("chainId", block.chainid);
@@ -51,6 +55,7 @@ contract DeployPaseo is DeploySparklBase {
         console2.log("attestationService", attest);
         console2.log("oracleUpdater", oracleUpdater);
         console2.log("RateSetter", dep.mockOracle);
+        console2.log("ModelPriceOracle", address(modelPriceOracle));
         console2.log("MockERC20 USDC", dep.mockUsdc);
         console2.log("ProviderRegistry", dep.providerRegistry);
         console2.log("SettlementEscrow", dep.settlementEscrow);
@@ -58,7 +63,14 @@ contract DeployPaseo is DeploySparklBase {
         console2.log("wrote deployments file", jsonPath);
     }
 
-    function _writeDeployJson(Deployment memory dep, address deployer, uint256 chainId, string memory path) internal {
+    function _writeDeployJson(
+        Deployment memory dep,
+        address deployer,
+        address oracleUpdater,
+        address modelPriceOracle,
+        uint256 chainId,
+        string memory path
+    ) internal {
         string memory root = "paseo";
         vm.serializeString(root, "network", "paseo-hub-evm");
         vm.serializeUint(root, "chainId", chainId);
@@ -66,7 +78,10 @@ contract DeployPaseo is DeploySparklBase {
         vm.serializeAddress(root, "deployer", deployer);
         vm.serializeAddress(root, "registryOwner", dep.registryOwner);
         vm.serializeAddress(root, "attestationService", dep.attestationService);
+        vm.serializeAddress(root, "oracleUpdater", oracleUpdater);
+        vm.serializeAddress(root, "rateSetter", dep.mockOracle);
         vm.serializeAddress(root, "priceOracle", dep.mockOracle);
+        vm.serializeAddress(root, "modelPriceOracle", modelPriceOracle);
         vm.serializeAddress(root, "mockUsdc", dep.mockUsdc);
         vm.serializeAddress(root, "providerRegistry", dep.providerRegistry);
         vm.serializeAddress(root, "settlementEscrow", dep.settlementEscrow);

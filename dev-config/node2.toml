@@ -41,7 +41,3 @@ epoch_secs = 600
 evm_rpc_url = "https://YOUR_POLKADOT_HUB_EVM_RPC"
 escrow_contract = "0x0000000000000000000000000000000000000000"
 enabled = false
-
-[pricing]
-micro_usd_per_m_input_tokens = 100
-micro_usd_per_m_output_tokens = 780

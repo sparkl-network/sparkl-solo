@@ -73,12 +73,14 @@ async fn main() -> Result<()> {
             "pruned completed sessions from local store"
         );
     }
-    let identity = identity::load_or_generate(&cfg).await?;
-    let identity_arc = Arc::new(identity.clone());
+    let _identity_boot = identity::load_or_generate(&cfg).await?;
     let nras_state = Arc::new(RwLock::new(NrasRuntimeState::default()));
 
-    let (_swarm_handle, swarm_cmd) =
-        network::start_swarm(&identity, &cfg.network, &cfg.node.data_dir).await?;
+    let (swarm_handle, swarm_cmd) =
+        network::start_swarm(&_identity_boot, &cfg.network, &cfg.node.data_dir).await?;
+    let identity = identity::bind_libp2p_peer_id(&swarm_handle.peer_id)?;
+    info!(peer_id = %identity.peer_id, "libp2p peer id bound as canonical node identity");
+    let identity_arc = Arc::new(identity.clone());
 
     let proxy = Arc::new(BackendProxy::new(&cfg.backend)?);
     if let Err(err) = proxy.check_health().await {
@@ -318,8 +320,6 @@ struct CliArgs {
     escrow_contract: Option<String>,
     settlement_enabled: Option<bool>,
     sparkl_network_config_address: Option<String>,
-    price_input_micro_usd_per_m: Option<u64>,
-    price_output_micro_usd_per_m: Option<u64>,
 }
 
 fn parse_cli_args<I>(mut args: I) -> Result<CliArgs>
@@ -360,8 +360,6 @@ where
         escrow_contract: None,
         settlement_enabled: None,
         sparkl_network_config_address: None,
-        price_input_micro_usd_per_m: None,
-        price_output_micro_usd_per_m: None,
     };
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -473,14 +471,6 @@ where
                     &mut args,
                     "--sparkl-network-config-address",
                 )?)
-            }
-            "--price-input-micro-usd-per-m" => {
-                out.price_input_micro_usd_per_m =
-                    Some(parse_u64_flag(&mut args, "--price-input-micro-usd-per-m")?);
-            }
-            "--price-output-micro-usd-per-m" => {
-                out.price_output_micro_usd_per_m =
-                    Some(parse_u64_flag(&mut args, "--price-output-micro-usd-per-m")?);
             }
             _ => {}
         }
@@ -636,12 +626,6 @@ fn apply_cli_overrides(cfg: &mut config::Config, cli: &CliArgs) -> Result<()> {
     }
     if let Some(v) = &cli.sparkl_network_config_address {
         cfg.settlement.sparkl_network_config_address = v.clone();
-    }
-    if let Some(v) = cli.price_input_micro_usd_per_m {
-        cfg.pricing.micro_usd_per_m_input_tokens = v;
-    }
-    if let Some(v) = cli.price_output_micro_usd_per_m {
-        cfg.pricing.micro_usd_per_m_output_tokens = v;
     }
     Ok(())
 }

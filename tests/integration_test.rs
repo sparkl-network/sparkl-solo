@@ -18,7 +18,7 @@ use serial_test::serial;
 use serde::Serialize;
 use ed25519_dalek::SigningKey;
 use sparkl_solo::config::{
-    AttestationConfig, BackendConfig, Config, NetworkConfig, NodeConfig, NodeMode, PricingConfig,
+    AttestationConfig, BackendConfig, Config, NetworkConfig, NodeConfig, NodeMode,
     RegistryConfig, SettlementConfig,
 };
 use sparkl_solo::identity::{self, NodeIdentity};
@@ -37,6 +37,14 @@ use tokio::time::sleep;
 
 fn test_nras_state() -> Arc<RwLock<NrasRuntimeState>> {
     Arc::new(RwLock::new(NrasRuntimeState::default()))
+}
+
+async fn load_identity_with_libp2p(cfg: &Config) -> NodeIdentity {
+    let boot = identity::load_or_generate(cfg).await.expect("identity");
+    let (swarm, _) = network::start_swarm(&boot, &cfg.network, &cfg.node.data_dir)
+        .await
+        .expect("swarm");
+    identity::bind_libp2p_peer_id(&swarm.peer_id).expect("bind libp2p peer id")
 }
 
 async fn backend_health() -> Json<Value> {
@@ -120,16 +128,10 @@ fn test_config(backend_addr: SocketAddr, temp_dir: &TempDir) -> Config {
             enabled: false,
             evm_provider_wallet_private_key: String::new(),
             evm_settlement_operator_wallet_private_key: String::new(),
-            usage_internal_units_per_micro_usd: 1_000_000_000_000,
             tee_tick_secs: 60,
             tee_settle_tokens_threshold: 256,
-            usage_tolerance_bps: 100,
             tee_settle_every_n_blocks: 0,
             session_min_deposit: 1_000_000_000_000_000_000,
-        },
-        pricing: PricingConfig {
-            micro_usd_per_m_input_tokens: 100,
-            micro_usd_per_m_output_tokens: 780,
         },
     }
 }
@@ -187,7 +189,7 @@ async fn status_exposes_minimal_public_fields() {
     let temp_dir = TempDir::new().expect("tempdir");
     let cfg = test_config(backend_addr, &temp_dir);
 
-    let identity = identity::load_or_generate(&cfg).await.expect("identity");
+    let identity = load_identity_with_libp2p(&cfg).await;
     let store = Arc::new(Store::open(&cfg.node.data_dir).expect("store"));
     let sessions = Arc::new(SessionManager::new(store));
     let proxy = Arc::new(BackendProxy::new(&cfg.backend).expect("proxy"));
@@ -244,7 +246,7 @@ async fn identity_exposes_trust_anchor_fields() {
     cfg.network.public_addr = vec!["/dns4/example.invalid/tcp/4001".to_string()];
     cfg.network.listen_addrs = vec!["/ip4/10.0.0.1/tcp/1234".to_string()];
 
-    let node_identity = identity::load_or_generate(&cfg).await.expect("identity");
+    let node_identity = load_identity_with_libp2p(&cfg).await;
     let store = Arc::new(Store::open(&cfg.node.data_dir).expect("store"));
     let sessions = Arc::new(SessionManager::new(store));
     let proxy = Arc::new(BackendProxy::new(&cfg.backend).expect("proxy"));
@@ -273,7 +275,8 @@ async fn identity_exposes_trust_anchor_fields() {
         body.get("peer_id").and_then(Value::as_str),
         Some(node_identity.peer_id.as_str())
     );
-    let expected_node_id = identity::on_chain_node_id_hex(&node_identity.ed25519_pubkey);
+    let expected_node_id =
+        identity::on_chain_node_id_hex_from_peer_id(&node_identity.peer_id).expect("node id hex");
     assert_eq!(
         body.get("node_id").and_then(Value::as_str),
         Some(expected_node_id.as_str())
@@ -345,7 +348,7 @@ async fn status_detail_is_available_when_enabled() {
     let mut cfg = test_config(backend_addr, &temp_dir);
     cfg.network.expose_status_detail = true;
 
-    let identity = identity::load_or_generate(&cfg).await.expect("identity");
+    let identity = load_identity_with_libp2p(&cfg).await;
     let store = Arc::new(Store::open(&cfg.node.data_dir).expect("store"));
     let sessions = Arc::new(SessionManager::new(store));
     let proxy = Arc::new(BackendProxy::new(&cfg.backend).expect("proxy"));
@@ -385,7 +388,7 @@ async fn returns_stored_unicity_proof_for_receipt() {
     let temp_dir = TempDir::new().expect("tempdir");
     let cfg = test_config(backend_addr, &temp_dir);
 
-    let identity = identity::load_or_generate(&cfg).await.expect("identity");
+    let identity = load_identity_with_libp2p(&cfg).await;
     let store = Arc::new(Store::open(&cfg.node.data_dir).expect("store"));
     let sessions = Arc::new(SessionManager::new(store));
     let proxy = Arc::new(BackendProxy::new(&cfg.backend).expect("proxy"));
@@ -460,7 +463,7 @@ async fn lists_models_via_node_endpoint() {
     let temp_dir = TempDir::new().expect("tempdir");
     let cfg = test_config(backend_addr, &temp_dir);
 
-    let identity = identity::load_or_generate(&cfg).await.expect("identity");
+    let identity = load_identity_with_libp2p(&cfg).await;
     let store = Arc::new(Store::open(&cfg.node.data_dir).expect("store"));
     let sessions = Arc::new(SessionManager::new(store));
     let proxy = Arc::new(BackendProxy::new(&cfg.backend).expect("proxy"));
@@ -508,7 +511,7 @@ async fn rejects_unknown_model_before_stream() {
     let temp_dir = TempDir::new().expect("tempdir");
     let cfg = test_config(backend_addr, &temp_dir);
 
-    let identity = identity::load_or_generate(&cfg).await.expect("identity");
+    let identity = load_identity_with_libp2p(&cfg).await;
     let store = Arc::new(Store::open(&cfg.node.data_dir).expect("store"));
     let sessions = Arc::new(SessionManager::new(store));
     let proxy = Arc::new(BackendProxy::new(&cfg.backend).expect("proxy"));
@@ -556,7 +559,7 @@ async fn proxies_plaintext_and_embeds_receipts() {
     let temp_dir = TempDir::new().expect("tempdir");
     let cfg = test_config(backend_addr, &temp_dir);
 
-    let identity = identity::load_or_generate(&cfg).await.expect("identity");
+    let identity = load_identity_with_libp2p(&cfg).await;
     let store = Arc::new(Store::open(&cfg.node.data_dir).expect("store"));
     let sessions = Arc::new(SessionManager::new(store));
     let proxy = Arc::new(BackendProxy::new(&cfg.backend).expect("proxy"));
@@ -598,7 +601,7 @@ async fn proxies_encrypted_and_embeds_receipts() {
     let temp_dir = TempDir::new().expect("tempdir");
     let cfg = test_config(backend_addr, &temp_dir);
 
-    let identity = identity::load_or_generate(&cfg).await.expect("identity");
+    let identity = load_identity_with_libp2p(&cfg).await;
     let store = Arc::new(Store::open(&cfg.node.data_dir).expect("store"));
     let sessions = Arc::new(SessionManager::new(store));
     let proxy = Arc::new(BackendProxy::new(&cfg.backend).expect("proxy"));
@@ -700,10 +703,6 @@ epoch_secs = 600
 evm_rpc_url = "https://example.com"
 escrow_contract = "0x0"
 enabled = false
-
-[pricing]
-micro_usd_per_m_input_tokens = 100
-micro_usd_per_m_output_tokens = 780
 "#,
         data_1.display()
     );
@@ -752,10 +751,6 @@ epoch_secs = 600
 evm_rpc_url = "https://example.com"
 escrow_contract = "0x0"
 enabled = false
-
-[pricing]
-micro_usd_per_m_input_tokens = 100
-micro_usd_per_m_output_tokens = 780
 "#,
         data_2.display(),
         swarm1.peer_id
@@ -818,7 +813,7 @@ async fn recovers_active_sessions_after_restart() {
 
     let sessions_before = SessionManager::new(store.clone());
     let session_id = sessions_before.open("mock-model", None, SecurityTier::BestEffort, None);
-    sessions_before.record_chunk(session_id, 5, [0u8; 32], 1_000_000);
+    sessions_before.record_chunk(session_id, 5, [0u8; 32]);
 
     let sessions_after = SessionManager::new(store);
     sessions_after.recover_from_store().expect("recover");
@@ -848,7 +843,7 @@ async fn encrypted_chat_honors_encryption_key_version_field() {
     let temp_dir = TempDir::new().expect("tempdir");
     let cfg = test_config(backend_addr, &temp_dir);
 
-    let identity = identity::load_or_generate(&cfg).await.expect("identity");
+    let identity = load_identity_with_libp2p(&cfg).await;
     assert_eq!(identity::current_encryption_key_version().unwrap(), 1);
     let store = Arc::new(Store::open(&cfg.node.data_dir).expect("store"));
     let sessions = Arc::new(SessionManager::new(store));
@@ -951,7 +946,8 @@ async fn legacy_v0_encrypted_request_decrypts() {
     .expect("write secret");
 
     let cfg = test_config(backend_addr, &temp_dir);
-    let identity = identity::load_or_generate(&cfg).await.expect("load legacy v0");
+    let _legacy = identity::load_or_generate(&cfg).await.expect("load legacy v0");
+    let identity = load_identity_with_libp2p(&cfg).await;
     assert_eq!(identity.x25519_pubkey, x_public);
     assert_eq!(identity::current_encryption_key_version().unwrap(), 0);
 

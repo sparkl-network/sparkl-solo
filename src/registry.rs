@@ -864,6 +864,29 @@ pub async fn run_heartbeat_loop(
     }
 }
 
+/// `GET /identity` → `registry_capabilities` for portal registration.
+///
+/// All sparkl-solo nodes advertise Best Effort. TEE tier registration is planned;
+/// `supports_tee` stays false here until the portal and attestation flow ship it.
+/// `tee_report_hash` may still be present for operator diagnostics when attestation exists.
+pub fn registry_capabilities_json(attestation_hash: &str) -> serde_json::Value {
+    let h = attestation_hash.trim();
+    let tee_report_hash = if h.is_empty() {
+        None
+    } else {
+        Some(if h.starts_with("0x") {
+            h.to_string()
+        } else {
+            format!("0x{}", h)
+        })
+    };
+    serde_json::json!({
+        "supports_best_effort": true,
+        "supports_tee": false,
+        "tee_report_hash": tee_report_hash,
+    })
+}
+
 fn parse_bytes32_strict(s: &str) -> Result<[u8; 32]> {
     let s = s.strip_prefix("0x").unwrap_or(s);
     let bytes = hex::decode(s).map_err(|e| anyhow!("invalid tee hash hex: {e}"))?;
@@ -896,7 +919,9 @@ mod tests {
     use super::*;
     use crate::attestation::NrasRuntimeState;
     use crate::config::{AttestationConfig, BackendConfig, RegistryConfig, SettlementConfig};
-    use crate::identity::{on_chain_node_id_bytes, on_chain_node_id_from_identity, NodeIdentity};
+    use crate::identity::{
+        on_chain_node_id_from_identity, on_chain_node_id_from_libp2p_peer_id, NodeIdentity,
+    };
     use crate::proxy::BackendProxy;
     use tokio::sync::RwLock;
 
@@ -938,13 +963,28 @@ mod tests {
             enabled: false,
             evm_provider_wallet_private_key: String::new(),
             evm_settlement_operator_wallet_private_key: String::new(),
-            usage_internal_units_per_micro_usd: 1,
             tee_tick_secs: 30,
             tee_settle_tokens_threshold: 1,
-            usage_tolerance_bps: 100,
             tee_settle_every_n_blocks: 0,
             session_min_deposit: 1_000_000_000_000_000_000,
         }
+    }
+
+    #[test]
+    fn registry_capabilities_empty_attestation() {
+        let caps = registry_capabilities_json("");
+        assert_eq!(caps["supports_best_effort"], true);
+        assert_eq!(caps["supports_tee"], false);
+        assert!(caps["tee_report_hash"].is_null());
+    }
+
+    #[test]
+    fn registry_capabilities_with_tee_hash_still_advertises_tee_false() {
+        let hash = "0xace9c4b0bca8bbb95391aae412174933ba56a1784faad1acba1ff5b76ef4f34a";
+        let caps = registry_capabilities_json(hash);
+        assert_eq!(caps["supports_best_effort"], true);
+        assert_eq!(caps["supports_tee"], false);
+        assert_eq!(caps["tee_report_hash"].as_str(), Some(hash));
     }
 
     fn test_attestation_config() -> AttestationConfig {
@@ -1062,10 +1102,17 @@ mod tests {
         assert_eq!(STARTUP_REGISTER_INITIAL_DELAY_SECS, 30);
     }
 
+    fn test_peer_id(i: u8) -> String {
+        let mut seed = [0u8; 32];
+        seed[0] = i;
+        let key = libp2p::identity::Keypair::ed25519_from_bytes(seed).expect("test key");
+        libp2p::PeerId::from(key.public()).to_string()
+    }
+
     #[test]
     fn test_on_chain_node_id_deterministic() {
         let identity = NodeIdentity {
-            peer_id: "test-peer".to_string(),
+            peer_id: test_peer_id(1),
             x25519_pubkey: [42u8; 32],
             ed25519_pubkey: [99u8; 32],
         };
@@ -1075,14 +1122,14 @@ mod tests {
     }
 
     #[test]
-    fn test_on_chain_node_id_different_for_different_keys() {
+    fn test_on_chain_node_id_different_for_different_peer_ids() {
         let identity1 = NodeIdentity {
-            peer_id: "peer-1".to_string(),
+            peer_id: test_peer_id(1),
             x25519_pubkey: [42u8; 32],
             ed25519_pubkey: [99u8; 32],
         };
         let identity2 = NodeIdentity {
-            peer_id: "peer-2".to_string(),
+            peer_id: test_peer_id(2),
             x25519_pubkey: [43u8; 32],
             ed25519_pubkey: [100u8; 32],
         };
@@ -1093,12 +1140,15 @@ mod tests {
 
     #[test]
     fn test_matches_identity_module_rule() {
-        let pk = [7u8; 32];
-        assert_eq!(on_chain_node_id_bytes(&pk), on_chain_node_id_from_identity(&NodeIdentity {
-            peer_id: "x".into(),
-            x25519_pubkey: [0u8; 32],
-            ed25519_pubkey: pk,
-        }));
+        let peer = test_peer_id(7);
+        assert_eq!(
+            on_chain_node_id_from_libp2p_peer_id(&peer).unwrap(),
+            on_chain_node_id_from_identity(&NodeIdentity {
+                peer_id: peer,
+                x25519_pubkey: [0u8; 32],
+                ed25519_pubkey: [7u8; 32],
+            })
+        );
     }
 
     #[test]

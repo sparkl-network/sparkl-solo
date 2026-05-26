@@ -37,7 +37,7 @@ contract ProviderRegistryTest is Test {
         reg = new ProviderRegistry(owner, attestation);
     }
 
-    function test_registerNode_setNodePricing_metadata() public {
+    function test_registerNode_metadata() public {
         bytes32 nodeId = _nid(nodeAddr);
         vm.startPrank(operator);
         reg.registerNode(nodeId, payout, true, true, "ipfs://meta", bytes32(0));
@@ -57,14 +57,6 @@ contract ProviderRegistryTest is Test {
         assertEq(keccak256(bytes(n.metadataURI)), keccak256(bytes("ipfs://meta")));
         assertEq(keccak256(bytes(reg.getMetadataURI(nodeId))), keccak256(bytes("ipfs://meta")));
         assertEq(uint8(reg.getProvider(nodeId).lifecycle), uint8(NodeLifecycle.Active));
-
-        vm.prank(operator);
-        reg.setNodePricing(nodeId, SecurityTier.BEST_EFFORT, 123);
-        assertEq(reg.getPricePer1k(nodeId, SecurityTier.BEST_EFFORT), 123);
-
-        vm.prank(operator);
-        reg.setNodePricing(nodeId, SecurityTier.TEE_VERIFIED, 456);
-        assertEq(reg.getPricePer1k(nodeId, SecurityTier.TEE_VERIFIED), 456);
     }
 
     function test_registerNode_zeroPayout_defaultsToOperator() public {
@@ -250,7 +242,6 @@ contract ProviderRegistryTest is Test {
         bytes32 nodeId = _nid(nodeAddr);
         vm.startPrank(operator);
         reg.registerNode(nodeId, payout, true, false, "", bytes32(0));
-        reg.setNodePricing(nodeId, SecurityTier.BEST_EFFORT, 99);
         reg.chillNode(nodeId);
         mockEsc.setOpenCount(nodeId, 0);
         reg.markDefunct(nodeId);
@@ -263,7 +254,6 @@ contract ProviderRegistryTest is Test {
         reg.purgeDefunctNode(nodeId);
 
         assertEq(reg.nodeOperator(nodeId), address(0));
-        assertEq(reg.getPricePer1k(nodeId, SecurityTier.BEST_EFFORT), 0);
         assertEq(reg.operatorNodes(operator).length, 0);
         NodeInfo memory n = reg.getProvider(nodeId);
         assertEq(n.payout, address(0));

@@ -72,7 +72,6 @@ pub async fn chat_completions(
     let proxy = state.proxy.clone();
     let sessions = state.sessions.clone();
     let receipt_cadence = state.config.node.receipt_cadence_tokens.max(1);
-    let output_price_per_m = state.config.pricing.micro_usd_per_m_output_tokens;
 
     let event_stream = stream! {
         // Determine TEE quote hash for this session.
@@ -113,6 +112,7 @@ pub async fn chat_completions(
                                 &rpc_url,
                                 &pk,
                                 node_id,
+                                &model,
                                 tier,
                                 min_deposit,
                             ).await {
@@ -202,7 +202,7 @@ pub async fn chat_completions(
                             }
                         };
                         let content_hash = hash_chunk(payload.as_bytes());
-                        sessions.record_chunk(session_id, 1, content_hash, output_price_per_m);
+                        sessions.record_chunk(session_id, 1, content_hash);
 
                         if let Some(session) = sessions.get(session_id) {
                             if session.tokens_output % receipt_cadence == 0 {

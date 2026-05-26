@@ -13,7 +13,6 @@ pub struct Config {
     pub attestation: AttestationConfig,
     pub registry: RegistryConfig,
     pub settlement: SettlementConfig,
-    pub pricing: PricingConfig,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -134,18 +133,12 @@ pub struct SettlementConfig {
     /// Hex-encoded secp256k1 key (`0x` optional). Must match `SettlementEscrow.settlementOperator` for operator settles.
     #[serde(default, alias = "evm_user_wallet_private_key")]
     pub evm_settlement_operator_wallet_private_key: String,
-    /// Maps off-chain micro-USD (`Session::amount_micro_usd`) into escrow internal DOT units (18 decimals).
-    #[serde(default = "default_usage_internal_units_per_micro_usd")]
-    pub usage_internal_units_per_micro_usd: u128,
     /// Wall-clock cadence for `TEE_VERIFIED` streaming settlement touches (seconds).
     #[serde(default = "default_settlement_tee_tick_secs")]
     pub tee_tick_secs: u64,
     /// Minimum `tokens_output` delta since last TEE anchor before a streaming partial settle attempt.
     #[serde(default = "default_tee_settle_tokens_threshold")]
     pub tee_settle_tokens_threshold: u64,
-    /// Allowed positive deviation of on-chain `usageRecorded` vs local bill for TEE streams (basis points).
-    #[serde(default = "default_usage_tolerance_bps")]
-    pub usage_tolerance_bps: u16,
     /// When non-zero, further throttle TEE touches to at least this many new RPC head blocks since last eligible settle.
     #[serde(default)]
     pub tee_settle_every_n_blocks: u64,
@@ -157,12 +150,6 @@ pub struct SettlementConfig {
 
 fn default_session_min_deposit() -> u64 {
     1_000_000_000_000_000_000u64 // 1e18
-}
-
-#[derive(Debug, Deserialize, Clone)]
-pub struct PricingConfig {
-    pub micro_usd_per_m_input_tokens: u64,
-    pub micro_usd_per_m_output_tokens: u64,
 }
 
 pub fn load(config_path: Option<&Path>) -> Result<Config> {
@@ -215,10 +202,6 @@ fn default_registry_contract_address() -> String {
     "0x0000000000000000000000000000000000000000".to_string()
 }
 
-fn default_usage_internal_units_per_micro_usd() -> u128 {
-    1_000_000_000_000
-}
-
 fn default_session_security_tier() -> SecurityTier {
     SecurityTier::BestEffort
 }
@@ -231,6 +214,3 @@ fn default_tee_settle_tokens_threshold() -> u64 {
     256
 }
 
-fn default_usage_tolerance_bps() -> u16 {
-    100
-}

@@ -11,7 +11,10 @@ session_security_tier = "best_effort"
 
 [network]
 # list of listen addresses for libp2p - TCP and QUIC
-listen_addrs = ["/ip4/0.0.0.0/udp/30333/quic-v1", "/ip4/0.0.0.0/tcp/30333"]
+listen_addrs = [
+  "/ip4/0.0.0.0/udp/30333/quic-v1",
+  "/ip4/0.0.0.0/tcp/30333",
+]
 # list of public addresses to advertise and inject into DHT
 # public_addr = []
 # expose /status/detail endpoint with peer+identity diagnostics
@@ -31,7 +34,7 @@ allow_non_globals_in_dht = false
 # external_ip = "127.0.0.1"
 
 [backend]
-url = "http://127.0.0.1:11434"
+url = "http://127.0.0.1:1234/v1"
 health_path = "/health"
 models_path = "/v1/models"
 timeout_secs = 120
@@ -57,7 +60,7 @@ enabled = false
 [settlement]
 epoch_secs = 600
 # Polkadot Hub EVM (pallet_revive) — replace with your RPC
-evm_rpc_url = "https://YOUR_POLKADOT_HUB_EVM_RPC"
+evm_rpc_url = "https://eth-asset-hub-paseo.dotters.network"
 # SettlementEscrow on Hub EVM. With `evm-settlement` + non-zero `SPARKL_NETWORK_CONFIG_ADDRESS`, startup
 # may overwrite this from the bootstrap contract; otherwise set here or `--escrow-contract`.
 escrow_contract = "0x0000000000000000000000000000000000000000"
@@ -65,22 +68,16 @@ escrow_contract = "0x0000000000000000000000000000000000000000"
 # Leave empty for production binaries that bake the address in `src/network_config.rs` (see `contracts/deployments/paseo.json`).
 # `--sparkl-network-config-address` wins over this field.
 sparkl_network_config_address = ""
-enabled = false
 # Required when building with `--features evm-settlement` and settlement.enabled = true:
+enabled = false
 # Node operator key — must match registry.nodeOperator(nodeId) for each settled session's nodeId.
 # evm_provider_wallet_private_key = "0x..."
 # evm_settlement_operator_wallet_private_key = "0x..."  # must match escrow.settlementOperator (set by registry owner)
-# Maps micro-USD bill to internal escrow units (placeholder scale).
-usage_internal_units_per_micro_usd = 1000000000000
 # TEE-verified streaming settlement cadence (wall clock seconds).
 tee_tick_secs = 60
 # Minimum output-token delta since last TEE anchor before attempting partial settle.
 tee_settle_tokens_threshold = 256
-# Allowed usageRecorded slack vs local bill for TEE paths (basis points).
-usage_tolerance_bps = 100
 # Optional block throttle between TEE settle attempts (0 = disabled).
 tee_settle_every_n_blocks = 0
-
-[pricing]
-micro_usd_per_m_input_tokens = 100
-micro_usd_per_m_output_tokens = 780
+# Minimum internal deposit when opening a session on-chain (18-dec internal units).
+session_min_deposit = 1000000000000000000

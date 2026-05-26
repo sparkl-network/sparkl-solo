@@ -38,14 +38,18 @@ forge build
 
 ### ABI sync (Rust node + portal)
 
-After changing contracts, copy the built artifacts so **off-chain consumers stay on the same ABI**:
+After changing contracts, sync ABIs so **off-chain consumers stay on the same ABI**:
 
-- **Rust (`sparkl-solo`):** from `contracts/` after `forge build`, update `../abi/` from Forge output, for example:
-  - `cp out/ProviderRegistry.sol/ProviderRegistry.json ../abi/ProviderRegistry.json`
-  - `cp out/SettlementEscrow.sol/SettlementEscrow.json ../abi/SettlementEscrow.json`
-  (Exact paths under `out/` match your contract file names.)
+```bash
+# From sparkl-network/ (parent of sparkl-solo and sparkl-portal)
+./scripts/sync-contract-abis.sh
+```
 
-- **`sparkl-portal`:** copy the same JSON files into `sparkl-portal/lib/abi/` (or your sibling checkout) so the Next app and `sparkl-solo` never drift.
+This runs `forge build`, writes bare ABI arrays to `sparkl-portal/lib/abi/`, copies full artifacts to `sparkl-solo/abi/`, and checks `registerNode` arity across consumers.
+
+`./scripts/launch-local.sh` runs the same sync (with `--no-build`) immediately after its `forge build`.
+
+Legacy portal-only entry point: `sparkl-portal/scripts/sync-abis.sh` (delegates to the script above).
 
 ### Node rundown (operator flow)
 
@@ -169,7 +173,7 @@ Sensitive values saved to: /home/derek/sparkl-solo/contracts/cache/DeployLocal.s
   ## sparkl-portal .env
   ### ProviderRegistry Contract Address
   ```env
-  NEXT_PUBLIC_PROVIDER_REGISTRY_ADDRESS_<ENV>=0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0
+  NEXT_PUBLIC_OPERATOR_REGISTRY_ADDRESS_<ENV>=0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0
   ```
   ### SettlementEscrow Contract Address
   ```env

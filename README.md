@@ -7,13 +7,13 @@ Rust prototype for the `sparkl-solo` binary.
 Sparkl is a decentralized private AI inference network for routing model requests across independent provider nodes.
 
 - see also [sparkl-portal](https://github.com/sparkl-network/sparkl-portal) for the portal/UI and [sparkl-oracle-rates](https://github.com/sparkl-network/sparkl-oracle-rates) for live rate pushes
-- **Coding agents:** [AGENT.md](./AGENT.md) (workspace overview: [../AGENT.md](../AGENT.md) when cloned under `sparkl-network/`)
+- **Coding agents:** [AGENTS.md](./AGENTS.md) (workspace overview: [../AGENTS.md](../AGENTS.md) when cloned under `sparkl-network/`)
 
 ## Target architecture
 
-**Goals:** payments and escrow on **Polkadot Hub EVM** (`pallet_revive`) using **DOT** first and **USDC** later (Hub **ERC-20 precompile**). Two provider tiers: **Tier A** (TEE-verified, confidential / verifiable inference) and **Tier B** (best-effort, cheaper). Consumers choose the tier; pricing may differ by tier.
+**Goals:** payments and escrow on **Polkadot Hub EVM** (`pallet_revive`) using **DOT** first and **USDC** later (Hub **ERC-20 precompile**). Two provider tiers: **Tier A** (TEE-verified, confidential / verifiable inference) and **Tier B** (best-effort, cheaper). Consumers choose the tier; **TEE sessions** may bill at a higher multiplier than best-effort.
 
-**On-chain:** `SettlementEscrow`, `ProviderRegistry` (payouts, per-tier pricing, TEE flags / evidence hash), and `IPriceOracle` (USDC↔DOT; DIA for MVP, Pyth later) — see [`contracts/`](./contracts/).
+**On-chain:** `SettlementEscrow`, `ProviderRegistry` (payouts, tier eligibility, TEE flags / evidence hash), `ModelPriceOracle` (network reference pricing per model), and `IPriceOracle` / `RateSetter` (USDC↔DOT; DIA for MVP, Pyth later) — see [`contracts/`](./contracts/). Per-model prices are pushed by [`sparkl-oracle-model-price`](https://github.com/sparkl-network/sparkl-oracle-model-price); nodes do not declare prices on the registry.
 
 **Off-chain:** an attestation service that verifies TEE quotes and writes **TEE verified** on-chain (MVP stub: [`services/tee-attestation-stub/`](./services/tee-attestation-stub/README.md)); aggregators that route by tier and price.
 
@@ -37,7 +37,7 @@ A solo node is a single node that runs on a single machine. It is the simplest f
 Planned: farm or gateway node, for running one sparkl-node and multiple provider nodes
 
 ## Quick Start (Agent)
-MUST: Read [AGENT.md](./AGENT.md) (also linked from [AGENTS.md](./AGENTS.md)).
+MUST: Read [AGENTS.md](./AGENTS.md) (also linked from [AGENTS.md](./AGENTS.md)).
 ```bash
 cargo build --features mock-tpm          # verify it compiles
 cargo test --features mock-tpm           # unit + integration tests

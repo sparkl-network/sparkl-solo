@@ -12,6 +12,7 @@ contract SparklNetworkConfigTest is Test {
     address internal reg = address(0xBEEF);
     address internal escrow = address(0xE5C0);
     address internal oracle = address(0x0A51);
+    address internal modelOracle = address(0x0A52);
 
     function test_setAddresses_revert_NotOwner() public {
         vm.prank(alice);
@@ -19,7 +20,7 @@ contract SparklNetworkConfigTest is Test {
 
         vm.prank(bob);
         vm.expectRevert(SparklNetworkConfig.NotOwner.selector);
-        cfg.setAddresses(reg, escrow, oracle);
+        cfg.setAddresses(reg, escrow, oracle, modelOracle);
     }
 
     function test_setAddresses_version_and_getters() public {
@@ -30,19 +31,21 @@ contract SparklNetworkConfigTest is Test {
         assertEq(cfg.providerRegistry(), address(0));
         assertEq(cfg.settlementEscrow(), address(0));
         assertEq(cfg.priceOracle(), address(0));
+        assertEq(cfg.modelPriceOracle(), address(0));
 
         vm.prank(alice);
         vm.expectEmit(true, true, true, true);
-        emit SparklNetworkConfig.AddressesUpdated(reg, escrow, oracle, 1);
-        cfg.setAddresses(reg, escrow, oracle);
+        emit SparklNetworkConfig.AddressesUpdated(reg, escrow, oracle, modelOracle, 1);
+        cfg.setAddresses(reg, escrow, oracle, modelOracle);
 
         assertEq(cfg.version(), 1);
         assertEq(cfg.providerRegistry(), reg);
         assertEq(cfg.settlementEscrow(), escrow);
         assertEq(cfg.priceOracle(), oracle);
+        assertEq(cfg.modelPriceOracle(), modelOracle);
 
         vm.prank(alice);
-        cfg.setAddresses(reg, escrow, oracle);
+        cfg.setAddresses(reg, escrow, oracle, modelOracle);
         assertEq(cfg.version(), 2);
     }
 
@@ -60,10 +63,10 @@ contract SparklNetworkConfigTest is Test {
 
         vm.prank(alice);
         vm.expectRevert(SparklNetworkConfig.NotOwner.selector);
-        cfg.setAddresses(reg, escrow, oracle);
+        cfg.setAddresses(reg, escrow, oracle, modelOracle);
 
         vm.prank(bob);
-        cfg.setAddresses(reg, escrow, oracle);
+        cfg.setAddresses(reg, escrow, oracle, modelOracle);
         assertEq(cfg.version(), 1);
     }
 
@@ -79,8 +82,7 @@ contract SparklNetworkConfigTest is Test {
         vm.startPrank(deployer);
         address predicted = vm.computeCreate2Address(NETWORK_CONFIG_SALT, initCodeHash, deployer);
         SparklNetworkConfig cfg = new SparklNetworkConfig{salt: NETWORK_CONFIG_SALT}(deployer);
+        assertEq(address(cfg), predicted);
         vm.stopPrank();
-
-        assertEq(address(cfg), predicted, "CREATE2 address mismatch");
     }
 }

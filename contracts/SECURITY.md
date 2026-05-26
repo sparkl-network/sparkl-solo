@@ -53,7 +53,7 @@ docker run --rm -v "$PWD":/work -w /work mythril/myth myth analyze src/Settlemen
 |--------------------|----------------|-------------|
 | `ProviderRegistry.transferOwnership`, `setAttestationService`, `setNodeFee` | **Owner** | `onlyOwner` |
 | `ProviderRegistry.setTEEProof` | **`attestationService`** | `onlyAttestationService` |
-| `ProviderRegistry.registerNode`, `setNodePayout`, `setNodeActive`, `setNodeMetadata`, `setNodePricing` | **Node operator** (`nodeOperator[nodeId] == msg.sender`) | `onlyNodeOperator` |
+| `ProviderRegistry.registerNode`, `setNodePayout`, `setNodeActive`, `setNodeMetadata` | **Node operator** (`nodeOperator[nodeId] == msg.sender`) | `onlyNodeOperator` |
 | `SettlementEscrow` | **Anyone** for deposit / withdraw own balances; **session user** for user escape-hatch settles; **`settlementOperator`** for operator settles; **session provider** for `recordUsage`; **`registry.owner()`** sets operator via `setSettlementOperator` | `msg.sender` checks; provider payouts from lock bounded by cumulative `usageRecorded` vs `paidToProviderInternal` |
 | Price oracles | **Read-only** from escrow | Immutable `priceOracle` reference |
 
