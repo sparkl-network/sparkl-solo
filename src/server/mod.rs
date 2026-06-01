@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use axum::middleware::from_fn_with_state;
 use axum::routing::{get, post};
 use axum::Router;
 use chrono::{DateTime, Utc};
@@ -14,6 +15,7 @@ use crate::proxy::BackendProxy;
 use crate::session::SessionManager;
 
 pub mod attestation;
+pub mod auth;
 pub mod health;
 pub mod identity;
 pub mod inference;
@@ -34,6 +36,19 @@ pub struct AppState {
 }
 
 pub fn router(state: AppState) -> Router {
+    let settlement_auth = state.config.settlement.enabled;
+
+    let mut openai = Router::new()
+        .route("/v1/models", get(models::list_models))
+        .route("/v1/chat/completions", post(inference::chat_completions));
+
+    if settlement_auth {
+        openai = openai.route_layer(from_fn_with_state(
+            state.clone(),
+            auth::require_session_bearer,
+        ));
+    }
+
     Router::new()
         .route("/health", get(health::health))
         .route("/status", get(health::status))
@@ -42,8 +57,7 @@ pub fn router(state: AppState) -> Router {
         .route("/attestation/challenge", post(attestation::challenge))
         .route("/receipts/verify", post(receipts::verify))
         .route("/receipts/proof/{session_id}/{seq}", get(receipts::proof))
-        .route("/v1/models", get(models::list_models))
-        .route("/v1/chat/completions", post(inference::chat_completions))
+        .merge(openai)
         .route("/tee/verify", post(tee::verify_quote))
         .route("/settlement/deposit-dot", post(settlement::deposit_dot))
         .route("/settlement/deposit-usdc", post(settlement::deposit_usdc_as_dot))

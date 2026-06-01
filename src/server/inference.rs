@@ -2,7 +2,7 @@ use std::convert::Infallible;
 
 use anyhow::{anyhow, Context};
 use async_stream::stream;
-use axum::extract::State;
+use axum::extract::{Extension, State};
 use axum::http::StatusCode;
 use axum::response::sse::{Event, Sse};
 use axum::response::{IntoResponse, Response};
@@ -16,10 +16,12 @@ use crate::identity;
 use crate::receipts::{encode_receipt_for_sse, generate_receipt_with_tee, hash_chunk, provider_identity};
 use crate::session::SessionState;
 
+use super::auth::AuthenticatedEvmSession;
 use super::AppState;
 
 pub async fn chat_completions(
     State(state): State<AppState>,
+    bearer_session: Option<Extension<AuthenticatedEvmSession>>,
     Json(request): Json<Value>,
 ) -> Response {
     let (backend_request, consumer_epk) = match decrypt_request_if_needed(request).await {
@@ -93,40 +95,49 @@ pub async fn chat_completions(
             None
         };
 
-        // Attempt to open an on-chain session (graceful degradation if unset).
-        // Only available when `evm-settlement` feature is enabled.
-        let evm_session_id: Option<u64> = {
+        // Link to on-chain escrow session: consumer Bearer auth (preferred) or provider-opened session.
+        let evm_session_id: Option<u64> = if let Some(Extension(auth)) = bearer_session {
+            info!(
+                evm_session_id = auth.session_id,
+                user = %auth.user,
+                "using consumer-authenticated on-chain session"
+            );
+            Some(auth.session_id)
+        } else {
             #[cfg(feature = "evm-settlement")]
             {
                 if state.config.settlement.enabled {
                     let escrow_addr = state.config.settlement.escrow_contract.clone();
-                    let rpc_url = state.config.registry.effective_evm_rpc_url(&state.config.settlement).to_string();
+                    let rpc_url = state
+                        .config
+                        .registry
+                        .effective_evm_rpc_url(&state.config.settlement)
+                        .to_string();
                     let pk = state.config.settlement.evm_provider_wallet_private_key.clone();
                     let min_deposit = state.config.settlement.session_min_deposit;
                     let tier = state.config.node.session_security_tier;
+                    let node_id = crate::identity::on_chain_node_id_from_identity(&state.identity);
 
-                    match crate::identity::on_chain_node_id_from_identity(&state.identity) {
-                        node_id => {
-                            match crate::settlement::evm::open_session_on_chain(
-                                &escrow_addr,
-                                &rpc_url,
-                                &pk,
-                                node_id,
-                                &model,
-                                tier,
-                                min_deposit,
-                            ).await {
-                                Ok(id) => {
-                                    if id.is_some() {
-                                        info!(evm_session_id = ?id, "on-chain session opened");
-                                    }
-                                    id
-                                }
-                                Err(err) => {
-                                    warn!(%err, "open_session_on_chain failed; session will not be linked to escrow");
-                                    None
-                                }
+                    match crate::settlement::evm::open_session_on_chain(
+                        &escrow_addr,
+                        &rpc_url,
+                        &pk,
+                        node_id,
+                        &model,
+                        tier,
+                        min_deposit,
+                    )
+                    .await
+                    {
+                        Ok(id) => {
+                            if id.is_some() {
+                                info!(evm_session_id = ?id, "on-chain session opened by provider");
                             }
+                            id
+                        }
+                        Err(err) => {
+                            warn!(%err, "open_session_on_chain failed; session will not be linked to escrow");
+                            None
                         }
                     }
                 } else {

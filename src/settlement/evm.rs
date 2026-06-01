@@ -26,6 +26,49 @@ alloy::sol!(
     concat!(env!("CARGO_MANIFEST_DIR"), "/abi/ProviderRegistry.json")
 );
 
+/// On-chain `SettlementEscrow.sessions(sessionId)` view (subset used for HTTP auth).
+#[derive(Debug, Clone)]
+pub struct ChainSession {
+    pub user: Address,
+    pub node_id: FixedBytes<32>,
+    pub settled: bool,
+}
+
+/// Read-only `sessions(sessionId)` eth_call.
+pub async fn fetch_chain_session(
+    escrow_addr: &str,
+    rpc_url: &str,
+    session_id: u64,
+) -> Result<ChainSession> {
+    let escrow_addr: Address = escrow_addr
+        .trim()
+        .parse()
+        .context("invalid settlement.escrow_contract")?;
+    if escrow_addr == Address::ZERO {
+        anyhow::bail!("settlement.escrow_contract is zero address");
+    }
+
+    let rpc_url = rpc_url
+        .trim()
+        .parse::<reqwest::Url>()
+        .context("invalid settlement.evm_rpc_url")?;
+
+    let provider = ProviderBuilder::new().connect_http(rpc_url);
+    let escrow = SettlementEscrow::new(escrow_addr, &provider);
+
+    let chain_sess = escrow
+        .sessions(U256::from(session_id))
+        .call()
+        .await
+        .context("sessions(sessionId) eth_call failed")?;
+
+    Ok(ChainSession {
+        user: chain_sess.user,
+        node_id: chain_sess.nodeId,
+        settled: chain_sess.settled,
+    })
+}
+
 pub(crate) async fn process_settlement_tick(
     settlement: &SettlementConfig,
     sessions: Arc<SessionManager>,
