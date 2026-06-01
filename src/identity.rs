@@ -336,6 +336,11 @@ pub fn sign_bytes(payload: &[u8]) -> Result<[u8; 64]> {
     Ok(key.sign(payload).to_bytes())
 }
 
+/// Ed25519 secret for router connect signing and deterministic `sk_` derivation.
+pub fn ed25519_secret_bytes() -> Result<[u8; 32]> {
+    Ok(require_loaded()?.ed25519_secret)
+}
+
 pub fn current_identity() -> Result<NodeIdentity> {
     Ok(require_loaded()?.public)
 }

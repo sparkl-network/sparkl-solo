@@ -11,6 +11,7 @@ Rust **provider node** (`sparkl-solo` binary), **Foundry** Hub EVM contracts, op
 | **sparkl-portal** | UI for registry/escrow; syncs ABIs from `contracts/`; probes node HTTP for registration |
 | **sparkl-oracle-rates** | Pushes DOT/USD to `RateSetter` deployed by scripts here |
 | **sparkl-oracle-model-price** | Pushes model reference prices to `ModelPriceOracle` |
+| **sparkl-router** | Consumer API gateway; nodes dial outbound WSS `/node/connect` |
 | **Workspace** | Sibling checkout layout — see [../AGENTS.md](../AGENTS.md) |
 
 On-chain: `ProviderRegistry`, `SettlementEscrow`, `RateSetter`, `ModelPriceOracle`, `SparklNetworkConfig` (CREATE2 bootstrap). Off-chain: libp2p + OpenAI-compatible inference proxy.
@@ -57,6 +58,27 @@ See **[DEVELOPER.md](./DEVELOPER.md)** — create `dev-config/node1.toml` and `n
 cargo run --features mock-tpm -- --config dev-config/node1.toml
 cargo run --features mock-tpm -- --config dev-config/node2.toml
 ```
+
+### Router tunnel (sparkl-router)
+
+Nodes register with **sparkl-router** over outbound WebSocket so consumers can reach inference without inbound ports.
+
+1. Start router: `cd ../sparkl-router && cargo run -- config.toml` (see router `config.example.toml`).
+2. Enable tunnel on solo — TOML `[router] enabled = true` or CLI:
+
+```bash
+cargo run --features mock-tpm -- \
+  --config dev-config/node1.toml \
+  --router-enabled true \
+  --router-url ws://127.0.0.1:3001/node/connect
+```
+
+Env override: `SPARKLE_ROUTER__URL`, `SPARKLE_ROUTER__ENABLED`.
+
+3. Router `chain.enabled = false` skips on-chain registry check at connect (local mock). For production, register the node on Hub EVM first (`registry.enabled` + matching `nodeId` from libp2p peer id).
+4. Verify: `curl -H "Authorization: Bearer $ADMIN_TOKEN" http://127.0.0.1:3001/status/nodes` shows `online`; `curl http://127.0.0.1:3001/v1/models` lists models from connected tunnels.
+
+Session activate (`POST /sessions/{id}/activate` on router) is forwarded as `activate_request`; solo mints deterministic `sk_` bearer keys when built with `--features evm-settlement`.
 
 Integration test: `cargo test --features mock-tpm two_nodes_discover_each_other_with_separate_configs -- --nocapture`
 

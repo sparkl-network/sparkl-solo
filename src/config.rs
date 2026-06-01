@@ -13,6 +13,43 @@ pub struct Config {
     pub attestation: AttestationConfig,
     pub registry: RegistryConfig,
     pub settlement: SettlementConfig,
+    #[serde(default)]
+    pub router: RouterConfig,
+}
+
+/// Outbound WebSocket tunnel to sparkl-router (`/node/connect`).
+#[derive(Debug, Default, Deserialize, Clone)]
+pub struct RouterConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    /// Full `ws://` or `wss://` URL (path `/node/connect` appended if missing).
+    #[serde(default)]
+    pub url: String,
+    #[serde(default = "default_router_reconnect_min_secs")]
+    pub reconnect_min_secs: u64,
+    #[serde(default = "default_router_reconnect_max_secs")]
+    pub reconnect_max_secs: u64,
+    /// Empty → `http://127.0.0.1:{network.inference_port}`.
+    #[serde(default)]
+    pub local_inference_base: String,
+}
+
+impl RouterConfig {
+    pub fn effective_local_inference_base(&self, inference_port: u16) -> String {
+        let t = self.local_inference_base.trim();
+        if !t.is_empty() {
+            return t.trim_end_matches('/').to_string();
+        }
+        format!("http://127.0.0.1:{inference_port}")
+    }
+}
+
+fn default_router_reconnect_min_secs() -> u64 {
+    1
+}
+
+fn default_router_reconnect_max_secs() -> u64 {
+    60
 }
 
 #[derive(Debug, Deserialize, Clone)]

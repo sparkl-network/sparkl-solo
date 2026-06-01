@@ -262,6 +262,35 @@ cargo run --features mock-tpm -- --config dev-config/node2.toml
   - `curl http://127.0.0.1:9944/status/detail` (operator diagnostics)
   - `curl http://127.0.0.1:9945/status/detail` (operator diagnostics)
 
+## sparkl-router tunnel (provider registration)
+
+Consumers reach your node through **sparkl-router**, not by dialing your inference port directly. Solo opens an **outbound** WebSocket to the router (`/node/connect`), signs a challenge with the node Ed25519 key, and forwards multiplexed HTTP to the local inference server.
+
+**Configuration** (`config/default.toml` or `dev-config/*.toml`):
+
+```toml
+[router]
+enabled = true
+url = "ws://127.0.0.1:3001/node/connect"   # or wss:// in production
+```
+
+**CLI overrides** (win over TOML): `--router-url`, `--router-enabled`. **Env:** `SPARKLE_ROUTER__URL`, `SPARKLE_ROUTER__ENABLED`.
+
+```bash
+# Terminal 1 — router
+cd ../sparkl-router && cp config.example.toml config.toml && cargo run -- config.toml
+
+# Terminal 2 — node with tunnel
+cargo run --features mock-tpm -- \
+  --config dev-config/node1.toml \
+  --router-enabled true \
+  --router-url ws://127.0.0.1:3001/node/connect
+```
+
+For local dev, set router `[chain] enabled = false` to skip registry checks, or register the node on Anvil and use the libp2p-derived `nodeId` on-chain.
+
+**Verify:** `GET http://127.0.0.1:3001/v1/models` (aggregated) and `GET /status/nodes` with router admin bearer show the connected node as `online`.
+
 ## Verify with automated test
 
 Run the two-node integration test:

@@ -133,6 +133,7 @@ fn test_config(backend_addr: SocketAddr, temp_dir: &TempDir) -> Config {
             tee_settle_every_n_blocks: 0,
             session_min_deposit: 1_000_000_000_000_000_000,
         },
+        router: sparkl_solo::config::RouterConfig::default(),
     }
 }
 

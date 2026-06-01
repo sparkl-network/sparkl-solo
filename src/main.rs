@@ -136,6 +136,14 @@ async fn main() -> Result<()> {
         });
     }
 
+    if cfg.router.enabled {
+        let router_cfg = cfg.clone();
+        let router_identity = identity.clone();
+        tokio::spawn(async move {
+            sparkl_solo::router_client::run(router_cfg, router_identity).await;
+        });
+    }
+
     let state = AppState {
         config: cfg.clone(),
         identity: identity.clone(),
@@ -320,6 +328,8 @@ struct CliArgs {
     escrow_contract: Option<String>,
     settlement_enabled: Option<bool>,
     sparkl_network_config_address: Option<String>,
+    router_enabled: Option<bool>,
+    router_url: Option<String>,
 }
 
 fn parse_cli_args<I>(mut args: I) -> Result<CliArgs>
@@ -360,6 +370,8 @@ where
         escrow_contract: None,
         settlement_enabled: None,
         sparkl_network_config_address: None,
+        router_enabled: None,
+        router_url: None,
     };
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -471,6 +483,12 @@ where
                     &mut args,
                     "--sparkl-network-config-address",
                 )?)
+            }
+            "--router-enabled" => {
+                out.router_enabled = Some(parse_bool_flag(&mut args, "--router-enabled")?)
+            }
+            "--router-url" => {
+                out.router_url = Some(required_value(&mut args, "--router-url")?)
             }
             _ => {}
         }
@@ -626,6 +644,14 @@ fn apply_cli_overrides(cfg: &mut config::Config, cli: &CliArgs) -> Result<()> {
     }
     if let Some(v) = &cli.sparkl_network_config_address {
         cfg.settlement.sparkl_network_config_address = v.clone();
+    }
+    if let Some(v) = cli.router_enabled {
+        cfg.router.enabled = v;
+    }
+    if let Some(v) = &cli.router_url {
+        if !v.trim().is_empty() {
+            cfg.router.url = v.trim().to_string();
+        }
     }
     Ok(())
 }

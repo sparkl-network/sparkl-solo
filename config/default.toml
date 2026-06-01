@@ -81,3 +81,13 @@ tee_settle_tokens_threshold = 256
 tee_settle_every_n_blocks = 0
 # Minimum internal deposit when opening a session on-chain (18-dec internal units).
 session_min_deposit = 1000000000000000000
+
+[router]
+# Dial sparkl-router outbound WSS tunnel (provider registers for consumer traffic).
+enabled = false
+# Full WebSocket URL; override with --router-url or SPARKLE_ROUTER__URL.
+url = "wss://api.sparkl.network/node/connect"
+reconnect_min_secs = 1
+reconnect_max_secs = 60
+# Empty → http://127.0.0.1:{network.inference_port}
+local_inference_base = ""

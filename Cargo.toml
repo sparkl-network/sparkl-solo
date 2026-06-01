@@ -31,6 +31,9 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = "2"
 uuid = { version = "1", features = ["serde", "v4"] }
+bs58 = "0.5"
+futures-util = "0.3"
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-native-roots"] }
 crypto_box = "0.9"
 secp256k1 = { version = "0.31.1", default-features = false, features = ["recovery", "global-context"] }
 alloy-primitives = { version = "1.5.7", default-features = false, features = ["std"] }

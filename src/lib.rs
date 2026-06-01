@@ -6,6 +6,7 @@ pub mod network;
 pub mod proxy;
 pub mod receipts;
 pub mod registry;
+pub mod router_client;
 pub mod server;
 pub mod session;
 pub mod settlement;

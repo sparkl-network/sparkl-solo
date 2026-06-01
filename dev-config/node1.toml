@@ -35,6 +35,13 @@ evm_rpc_url = ""
 heartbeat_secs = 30
 enabled = false
 
+[router]
+enabled = false
+url = "ws://127.0.0.1:3001/node/connect"
+reconnect_min_secs = 1
+reconnect_max_secs = 60
+local_inference_base = ""
+
 [settlement]
 epoch_secs = 600
 evm_rpc_url = "https://YOUR_POLKADOT_HUB_EVM_RPC"

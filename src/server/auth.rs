@@ -54,7 +54,7 @@ async fn authenticate(
     state: &AppState,
     headers: &HeaderMap,
 ) -> Result<AuthenticatedEvmSession, Response> {
-    let session_id = parse_bearer_session_id(headers).map_err(auth_error)?;
+    let (session_id, sk_token) = parse_bearer_session(headers).map_err(auth_error)?;
 
     #[cfg(feature = "evm-settlement")]
     {
@@ -86,7 +86,16 @@ async fn authenticate(
             return Err(auth_error("session is not for this node"));
         }
 
-        verify_session_user_proof(headers, chain_sess.user, session_id)?;
+        if let Some(token) = sk_token {
+            crate::router_client::verify_sk_bearer(
+                token,
+                session_id,
+                chain_sess.user,
+            )
+            .map_err(|e| auth_error_msg(e))?;
+        } else {
+            verify_session_user_proof(headers, chain_sess.user, session_id)?;
+        }
 
         Ok(AuthenticatedEvmSession {
             session_id,
@@ -108,8 +117,8 @@ async fn authenticate(
     }
 }
 
-/// `Authorization: Bearer <sessionId>` where `sessionId` is the on-chain escrow id.
-fn parse_bearer_session_id(headers: &HeaderMap) -> Result<u64, &'static str> {
+/// `Authorization: Bearer <sessionId>` or `Bearer sk_...` after router activate.
+fn parse_bearer_session(headers: &HeaderMap) -> Result<(u64, Option<&str>), &'static str> {
     let authz = headers
         .get(header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
@@ -118,16 +127,42 @@ fn parse_bearer_session_id(headers: &HeaderMap) -> Result<u64, &'static str> {
     let token = authz
         .strip_prefix("Bearer ")
         .or_else(|| authz.strip_prefix("bearer "))
-        .ok_or("Authorization must be Bearer <sessionId>")?
+        .ok_or("Authorization must be Bearer <sessionId> or sk_...")?
         .trim();
 
     if token.is_empty() {
-        return Err("empty bearer session id");
+        return Err("empty bearer token");
     }
 
-    token
+    if token.starts_with("sk_") {
+        let bytes = bs58::decode(token.strip_prefix("sk_").unwrap_or(token))
+            .into_vec()
+            .map_err(|_| "invalid base58 in sk_ token")?;
+        if bytes.len() != 64 {
+            return Err("sk_ token must decode to 64 bytes");
+        }
+        if bytes[..24] != [0u8; 24] {
+            return Err("session id in sk_ token exceeds u64 range");
+        }
+        let session_id = u64::from_be_bytes(bytes[24..32].try_into().unwrap());
+        return Ok((session_id, Some(token)));
+    }
+
+    let session_id = token
         .parse::<u64>()
-        .map_err(|_| "bearer token must be a numeric on-chain session id")
+        .map_err(|_| "bearer token must be a numeric on-chain session id or sk_...")?;
+    Ok((session_id, None))
+}
+
+fn auth_error_msg(message: &str) -> Response {
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(json!({
+            "error": message,
+            "type": "invalid_session_auth"
+        })),
+    )
+        .into_response()
 }
 
 /// When `X-Sparkl-Message` + `X-Sparkl-Signature` are present, require EIP-191 recovery to `session.user`.
@@ -250,6 +285,8 @@ mod tests {
             header::AUTHORIZATION,
             "Bearer 7".parse().expect("header value"),
         );
-        assert_eq!(parse_bearer_session_id(&headers).expect("parse"), 7);
+        let (id, sk) = parse_bearer_session(&headers).expect("parse");
+        assert_eq!(id, 7);
+        assert!(sk.is_none());
     }
 }
