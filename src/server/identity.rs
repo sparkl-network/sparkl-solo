@@ -123,9 +123,12 @@ pub async fn identity(State(state): State<AppState>) -> Response {
         .map(|s| s.as_str())
         .collect();
 
+    let moniker = state.config.node.display_moniker();
+
     let mut body = json!({
         "peer_id": node_identity.peer_id,
         "node_id": node_id_hex,
+        "moniker": moniker,
         "ed25519_pubkey": hex::encode(ed25519_pubkey_bytes),
         "x25519_pubkey": hex::encode(node_identity.x25519_pubkey),
         "encryption_key_version": match identity::current_encryption_key_version() {

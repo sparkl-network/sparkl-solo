@@ -19,6 +19,7 @@ use crate::router_client::frames::{NodeToRouterFrame, RouterToNodeFrame};
 pub async fn run_connected_session(
     ws_url: &str,
     identity: &NodeIdentity,
+    moniker: Option<&str>,
     http: Client,
     local_base: String,
     settlement: SettlementConfig,
@@ -60,11 +61,11 @@ pub async fn run_connected_session(
         .context("get on-chain node ID")?;
     let ed_pk = hex::encode(identity.ed25519_pubkey);
 
-    // Build Auth frame — FIX: use correct field name `ed25519_pubkey` (was typo'd as `ed22519`)
     let auth = NodeToRouterFrame::Auth {
         node_id,
         signature: hex::encode(&sig),
-        ed25519_pubkey: Some(ed_pk), // FIXED: was ed22519_pubkey (typo)
+        ed25519_pubkey: Some(ed_pk),
+        moniker: moniker.map(str::to_string),
     };
 
     sink.send(Message::Text(auth.to_json().context("serialize auth")?))

@@ -54,7 +54,7 @@ async fn authenticate(
     state: &AppState,
     headers: &HeaderMap,
 ) -> Result<AuthenticatedEvmSession, Response> {
-    let (session_id, sk_token) = parse_bearer_session(headers).map_err(auth_error)?;
+    let (session_id, _sk_token) = parse_bearer_session(headers).map_err(auth_error)?;
 
     #[cfg(feature = "evm-settlement")]
     {

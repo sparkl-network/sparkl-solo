@@ -55,11 +55,18 @@ pub async fn run(cfg: Config, identity: NodeIdentity) {
     let mut backoff = min_delay;
 
     loop {
-        info!(%ws_url, %local_base, "connecting to sparkl-router");
+        let moniker = cfg.node.display_moniker().map(str::to_string);
+        info!(
+            %ws_url,
+            %local_base,
+            moniker = moniker.as_deref().unwrap_or(""),
+            "connecting to sparkl-router"
+        );
 
         let result = connect::run_connected_session(
             &ws_url,
             &identity,
+            moniker.as_deref(),
             http.clone(),
             local_base.clone(),
             cfg.settlement.clone(),

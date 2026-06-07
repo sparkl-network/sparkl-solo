@@ -1,0 +1,59 @@
+[node]
+moniker = "launch-grid"
+data_dir = "./dev-data/launch"
+log_level = "info"
+mode = "solo"
+receipt_cadence_tokens = 50
+include_models = []
+exclude_models = []
+
+[network]
+listen_addrs = ["/ip4/127.0.0.1/tcp/31010"]
+inference_port = 19950
+bootstrap_peers = []
+public_addr = []
+expose_status_detail = true
+allow_non_globals_in_dht = true
+
+[backend]
+url = "http://192.168.10.199:1234"
+health_path = "/health"
+models_path = "/v1/models"
+timeout_secs = 120
+
+[[models]]
+id = "qwen/qwen3.6-27b"          # must match backend /v1/models id
+quantization = "Q4_K_M"
+parameter_count = "27B"
+context_size = 128000
+concurrency = 4
+source_url = "https://huggingface.co/Qwen/Qwen3.6-27B"
+
+# [[models]]
+# name = "google/gemma-4-26b-a4b"
+
+
+[attestation]
+nras_url = "https://nras.attestation.nvidia.com"
+nras_enabled = false
+cert_ttl_days = 7
+
+[registry]
+registry_contract_address = "0x720472c8ce72c2A2D711333e064ABD3E6BbEAdd3"
+evm_rpc_url = "http://127.0.0.1:8545"
+heartbeat_secs = 30
+enabled = false
+
+[settlement]
+epoch_secs = 600
+evm_rpc_url = "http://127.0.0.1:8545"
+escrow_contract = "0xe8D2A1E88c91DCd5433208d4152Cc4F399a7e91d"
+sparkl_network_config_address = "0x565e6dDC3F12139db60415469B419771830f09D1"
+enabled = false
+
+[router]
+enabled = true
+url = "ws://127.0.0.1:3001/node/connect"
+reconnect_min_secs = 1
+reconnect_max_secs = 60
+local_inference_base = ""

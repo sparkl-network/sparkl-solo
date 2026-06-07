@@ -4,6 +4,7 @@ pragma solidity ^0.8.20;
 import {DeploySparklBase} from "./DeploySparklBase.sol";
 import {RateSetter} from "../src/RateSetter.sol";
 import {ModelPriceOracle} from "../src/ModelPriceOracle.sol";
+import {SettlementEscrow} from "../src/SettlementEscrow.sol";
 import {console2} from "forge-std/console2.sol";
 
 /// @notice Local Anvil: deploy RateSetter + Sparkl core contracts; record addresses to `deployments/local.json`.
@@ -19,6 +20,12 @@ contract DeployLocal is DeploySparklBase {
     /// @notice Anvil dev key #0 (public, well-known — local only).
     uint256 internal constant ANVIL_DEFAULT_PK =
         uint256(0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80);
+    /// @dev Anvil mnemonic index 8 — local `recordUsage` role (router metering).
+    uint256 internal constant ANVIL_RECORD_USAGE_PK =
+        uint256(0xdbda1821b80551c9d65939329250298aa3472ba22feea921c0cf5d620ea67b97);
+    /// @dev Anvil account #9 — local protocol treasury.
+    uint256 internal constant ANVIL_PROTOCOL_TREASURY_PK =
+        uint256(0x7c852118294e5110ad5ddbe22fcb5e3729ac39424b859201ae82d5579f78acf5);
 
     function run() external {
         uint256 pk = vm.envOr("PRIVATE_KEY", ANVIL_DEFAULT_PK);
@@ -58,12 +65,34 @@ contract DeployLocal is DeploySparklBase {
         Deployment memory dep =
             deploySparklCoreWithOracle(deployer, attest, pk, 18, rateOracle, modelPriceOracle);
 
+        address recordUsageRole = vm.envOr("RECORD_USAGE_ADDRESS", vm.addr(ANVIL_RECORD_USAGE_PK));
+        address protocolTreasury =
+            vm.envOr("PROTOCOL_TREASURY_ADDRESS", vm.addr(ANVIL_PROTOCOL_TREASURY_PK));
+
+        vm.startBroadcast(pk);
+        SettlementEscrow escrow = SettlementEscrow(payable(dep.settlementEscrow));
+        escrow.setRecordUsage(recordUsageRole);
+        escrow.setProtocolTreasury(protocolTreasury);
+        vm.stopBroadcast();
+
+        console2.log("recordUsageRole", recordUsageRole);
+        console2.log("protocolTreasury", protocolTreasury);
+
         string memory jsonPath = "deployments/local.json";
         if (vm.envExists("DEPLOYMENTS_OUT")) {
             jsonPath = vm.envString("DEPLOYMENTS_OUT");
         }
 
-        _writeDeployJson(dep, deployer, oracleUpdater, address(modelPriceOracle), block.chainid, jsonPath);
+        _writeDeployJson(
+            dep,
+            deployer,
+            oracleUpdater,
+            address(modelPriceOracle),
+            recordUsageRole,
+            protocolTreasury,
+            block.chainid,
+            jsonPath
+        );
 
         console2.log("network", "anvil-local");
         console2.log("chainId", block.chainid);
@@ -84,6 +113,8 @@ contract DeployLocal is DeploySparklBase {
         address deployer,
         address oracleUpdater,
         address modelPriceOracle,
+        address recordUsageRole,
+        address protocolTreasury,
         uint256 chainId,
         string memory path
     ) internal {
@@ -101,6 +132,8 @@ contract DeployLocal is DeploySparklBase {
         vm.serializeAddress(root, "mockUsdc", dep.mockUsdc);
         vm.serializeAddress(root, "providerRegistry", dep.providerRegistry);
         vm.serializeAddress(root, "settlementEscrow", dep.settlementEscrow);
+        vm.serializeAddress(root, "recordUsageRole", recordUsageRole);
+        vm.serializeAddress(root, "protocolTreasury", protocolTreasury);
         vm.serializeAddress(root, "sparklNetworkConfig", dep.sparklNetworkConfig);
         string memory json = vm.serializeBytes32(root, "networkConfigSalt", NETWORK_CONFIG_SALT);
         vm.writeJson(json, path);

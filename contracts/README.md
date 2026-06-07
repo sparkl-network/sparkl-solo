@@ -51,6 +51,8 @@ This runs `forge build`, writes bare ABI arrays to `sparkl-portal/lib/abi/`, cop
 
 Legacy portal-only entry point: `sparkl-portal/scripts/sync-abis.sh` (delegates to the script above).
 
+**`SettlementEscrow.openSession`** takes an optional fifth argument `string name` (max **128 bytes** on-chain; portal validates 128 Unicode characters). Empty string is allowed.
+
 ### Node rundown (operator flow)
 
 Nodes use on-chain **`NodeLifecycle`**: **Active** → **`chillNode`** (operator, may run with open escrow sessions) → **Chilled** → **`markDefunct`** (operator, only when escrow **`openSessionCountByNode(nodeId)`** is zero) → **Defunct**. The registry owner may call **`purgeDefunctNode`** later to clear storage so the same **`nodeId`** can be registered again. **`deregisterNode`** is removed — integrators should use chill / mark defunct instead.

@@ -258,6 +258,21 @@ impl SessionManager {
             .count()
     }
 
+    pub fn active_count_for_model(&self, model_id: &str) -> u32 {
+        self.sessions
+            .iter()
+            .filter(|entry| {
+                entry
+                    .lock()
+                    .map(|s| {
+                        s.model == model_id
+                            && matches!(s.state, SessionState::Opening | SessionState::Active)
+                    })
+                    .unwrap_or(false)
+            })
+            .count() as u32
+    }
+
     pub fn save_unicity_proof(
         &self,
         session_id: Uuid,

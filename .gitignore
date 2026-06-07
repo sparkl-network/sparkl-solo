@@ -30,6 +30,7 @@ rust_out/
 # Local runtime state and keys
 .sparkl-data/
 dev-data/
+dev-config/data/
 .launch/
 sparkl-solo.log
 

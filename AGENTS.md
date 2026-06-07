@@ -36,19 +36,20 @@ cd ../tests-js && yarn install && yarn tpm:suite
 
 ### One-command local stack (recommended for agents)
 
-Starts Anvil (if needed; **persists** to `.launch/anvil-state.json` by default), deploys `DeployLocal` when artifacts or chain drift, runs Forge + Rust tests, writes `dev-config/launch.toml`, starts a node, prints **portal** and **sparkl-oracle-rates** env hints:
+Starts Anvil (if needed; **persists** to `.launch/anvil-state.json` by default), deploys `DeployLocal` when artifacts or chain drift, runs Forge + Rust tests, writes `dev-config/launch.toml` and `dev-config/router-launch.toml`, starts **sparkl-router** and a solo node (unless skipped), prints **portal**, **router**, and **sparkl-oracle-rates** env hints:
 
 ```bash
 ./scripts/launch-local.sh              # full stack until Ctrl+C
 ./scripts/launch-local.sh --skip-node  # chain + deploy + tests only
+./scripts/launch-local.sh --skip-router # no sparkl-router; solo tunnel disabled
 ./scripts/launch-local.sh --skip-tests # faster iteration
 ./scripts/launch-local.sh --no-state   # ephemeral Anvil (no state file)
 ./scripts/launch-local.sh --force-deploy
 ```
 
-Local MVP: run **sparkl-oracle-rates** for live DOT/USD; model default price is seeded on-chain at launch (no **sparkl-oracle-model-price** service required).
+Local MVP: run **sparkl-oracle-rates** for live DOT/USD; model default price is seeded on-chain at launch (no **sparkl-oracle-model-price** service required). Default router uses `chain.enabled = true` — **commercially register** the node on portal `/node/register` before WSS tunnel shows online.
 
-After launch: health `curl http://127.0.0.1:19950/health`, deployments in `contracts/deployments/local.json`.
+After launch: health `curl http://127.0.0.1:19950/health`, router `curl http://127.0.0.1:3001/health`, deployments in `contracts/deployments/local.json`.
 
 ### Manual: two nodes (libp2p discovery)
 
@@ -61,9 +62,13 @@ cargo run --features mock-tpm -- --config dev-config/node2.toml
 
 ### Router tunnel (sparkl-router)
 
-Nodes register with **sparkl-router** over outbound WebSocket so consumers can reach inference without inbound ports.
+Nodes subscribe to **sparkl-router** over outbound WebSocket so consumers can reach inference without inbound ports.
 
-1. Start router: `cd ../sparkl-router && cargo run -- config.toml` (see router `config.example.toml`).
+**launch-local.sh** starts the router and sets `[router] enabled = true` in `dev-config/launch.toml` (unless `--skip-router`). Generated router config uses `chain.enabled = true` — register on portal first.
+
+**Manual** (two-node or custom configs):
+
+1. Start router: `cd ../sparkl-router && cargo run -- config.toml` (see router `config.example.toml`), or use `./scripts/launch-local.sh` without `--skip-router`.
 2. Enable tunnel on solo — TOML `[router] enabled = true` or CLI:
 
 ```bash
@@ -75,7 +80,7 @@ cargo run --features mock-tpm -- \
 
 Env override: `SPARKLE_ROUTER__URL`, `SPARKLE_ROUTER__ENABLED`.
 
-3. Router `chain.enabled = false` skips on-chain registry check at connect (local mock). For production, register the node on Hub EVM first (`registry.enabled` + matching `nodeId` from libp2p peer id).
+3. With `chain.enabled = true`, **commercially register** the node on the portal first, then solo **WSS-subscribes** to the router (`router.enabled` + matching `nodeId` from libp2p peer id). `registry.enabled` is for on-chain heartbeat/TEE only (no startup `registerNode`). Set `chain.enabled = false` in a custom router config to skip the on-chain gate for local mock tests.
 4. Verify: `curl -H "Authorization: Bearer $ADMIN_TOKEN" http://127.0.0.1:3001/status/nodes` shows `online`; `curl http://127.0.0.1:3001/v1/models` lists models from connected tunnels.
 
 Session activate (`POST /sessions/{id}/activate` on router) is forwarded as `activate_request`; solo mints deterministic `sk_` bearer keys when built with `--features evm-settlement`.
@@ -132,7 +137,7 @@ Build with `mock-tpm,evm-settlement`, set `settlement.enabled`, registry address
 | `src/registry.rs` | Hub registry client (stub — extend per [docs/MVP_ROADMAP.md](./docs/MVP_ROADMAP.md)) |
 | `src/settlement/` | Epoch loop; `evm.rs` with `evm-settlement` |
 | `contracts/src/` | `ProviderRegistry`, `SettlementEscrow`, `RateSetter`, `ModelPriceOracle`, … |
-| `scripts/launch-local.sh` | Local Anvil + deploy + node + oracle hints |
+| `scripts/launch-local.sh` | Local Anvil + deploy + sparkl-router + solo node + portal/router/oracle hints |
 
 Priorities and gaps: **[docs/MVP_ROADMAP.md](./docs/MVP_ROADMAP.md)**.
 

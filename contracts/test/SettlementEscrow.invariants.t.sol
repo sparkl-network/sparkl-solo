@@ -89,7 +89,7 @@ contract SettlementEscrowInvariantHandler is Test {
 
         _ensureAliceSpendable(lockAmt);
         vm.prank(alice);
-        try escrow.openSession(_nid(p), t, TEST_MODEL, lockAmt) {
+        try escrow.openSession(_nid(p), t, TEST_MODEL, lockAmt, "") {
             _openedLockSum[p] += lockAmt;
         } catch {}
     }
@@ -98,10 +98,10 @@ contract SettlementEscrowInvariantHandler is Test {
         uint256 n = escrow.nextSessionId();
         if (n == 0) return;
         uint256 sid = bound(seed, 0, n - 1);
-        (,,,,,,,,, bool settled,,) = escrow.sessions(sid);
-        if (settled) return;
+        SettlementEscrow.Session memory s = escrow.sessions(sid);
+        if (s.settled) return;
 
-        (, bytes32 nodeId,,,,,,,,,,) = escrow.sessions(sid);
+        bytes32 nodeId = s.nodeId;
         uint256 inputTok = bound(usageAmt, 1, 1_000_000);
 
         vm.prank(reg.nodeOperator(nodeId));
@@ -112,11 +112,10 @@ contract SettlementEscrowInvariantHandler is Test {
         uint256 n = escrow.nextSessionId();
         if (n == 0) return;
         uint256 sid = seed % n;
-        (
-            address user,
-            bytes32 nodeId,,, uint256 locked,,,,, bool settled,,
-        ) = escrow.sessions(sid);
-        if (settled || locked == 0 || user != alice) return;
+        SettlementEscrow.Session memory sess = escrow.sessions(sid);
+        if (sess.settled || sess.lockedInternal == 0 || sess.user != alice) return;
+        bytes32 nodeId = sess.nodeId;
+        uint256 locked = sess.lockedInternal;
 
         uint256 mix = uint256(keccak256(abi.encode(seed, a, b)));
         uint256 sum = bound(mix, 1, locked);
@@ -125,7 +124,8 @@ contract SettlementEscrowInvariantHandler is Test {
 
         vm.prank(alice);
         try escrow.settlePartial(sid, toP, toU) {
-            _paidToProviderSum[reg.nodeOperator(nodeId)] += toP;
+            uint256 fee = (toP * escrow.protocolFeeBps()) / 10_000;
+            _paidToProviderSum[reg.nodeOperator(nodeId)] += toP - fee;
         } catch {}
     }
 
@@ -133,16 +133,16 @@ contract SettlementEscrowInvariantHandler is Test {
         uint256 n = escrow.nextSessionId();
         if (n == 0) return;
         uint256 sid = seed % n;
-        (
-            address user,
-            bytes32 nodeId,,, uint256 locked,,,,, bool settled,,
-        ) = escrow.sessions(sid);
-        if (settled || locked == 0 || user != alice) return;
+        SettlementEscrow.Session memory sess = escrow.sessions(sid);
+        if (sess.settled || sess.lockedInternal == 0 || sess.user != alice) return;
+        bytes32 nodeId = sess.nodeId;
+        uint256 locked = sess.lockedInternal;
 
         uint256 half = locked / 2;
         vm.prank(alice);
         try escrow.settleFull(sid, half, locked - half) {
-            _paidToProviderSum[reg.nodeOperator(nodeId)] += half;
+            uint256 fee = (half * escrow.protocolFeeBps()) / 10_000;
+            _paidToProviderSum[reg.nodeOperator(nodeId)] += half - fee;
         } catch {}
     }
 
@@ -227,6 +227,7 @@ contract SettlementEscrowInvariantTest is StdInvariant, Test {
     function invariant_circulatingMatchesBucketsSingleAlice() external view {
         uint256 buckets = esc.totalLockedInternal() + esc.dotBalances(alice);
         buckets += esc.providerBalances(_nid(p0)) + esc.providerBalances(_nid(p1));
+        buckets += esc.protocolBalances();
         assertEq(buckets, esc.internalCirculating());
     }
 

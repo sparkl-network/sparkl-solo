@@ -1,7 +1,10 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use serde::Deserialize;
+
+use crate::models::validate_features;
 
 use crate::session::SecurityTier;
 
@@ -15,6 +18,55 @@ pub struct Config {
     pub settlement: SettlementConfig,
     #[serde(default)]
     pub router: RouterConfig,
+    #[serde(default)]
+    pub capacity: CapacityConfig,
+    /// Published model catalog (`[[models]]`). When non-empty, only listed models that exist on the backend are advertised.
+    #[serde(default)]
+    pub models: Vec<ModelEntryConfig>,
+}
+
+#[derive(Debug, Default, Deserialize, Clone)]
+pub struct CapacityConfig {
+    #[serde(default = "default_queue_depth_ratio")]
+    pub queue_depth_ratio: f64,
+    #[serde(default = "default_queue_wait_timeout_secs")]
+    pub queue_wait_timeout_secs: u64,
+}
+
+fn default_queue_depth_ratio() -> f64 {
+    1.0
+}
+
+fn default_queue_wait_timeout_secs() -> u64 {
+    60
+}
+
+/// Operator-defined model offering (`[[models]]` in config).
+#[derive(Debug, Deserialize, Clone)]
+pub struct ModelEntryConfig {
+    pub id: String,
+    #[serde(default)]
+    pub quantization: String,
+    #[serde(default)]
+    pub parameter_count: String,
+    #[serde(default)]
+    pub context_size: u32,
+    #[serde(default)]
+    pub concurrency: u32,
+    #[serde(default)]
+    pub source_url: String,
+    #[serde(default)]
+    pub features: HashMap<String, String>,
+}
+
+impl ModelEntryConfig {
+    pub fn validate(&self) -> Result<()> {
+        let id = self.id.trim();
+        if id.is_empty() {
+            anyhow::bail!("[[models]] entry requires non-empty id");
+        }
+        validate_features(&self.features, id)
+    }
 }
 
 /// Outbound WebSocket tunnel to sparkl-router (`/node/connect`).
@@ -61,7 +113,9 @@ pub enum NodeMode {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct NodeConfig {
-    pub name: String,
+    /// Operator-facing label for logs, portal directory, and router tunnel status (max 128 chars).
+    #[serde(alias = "name")]
+    pub moniker: String,
     pub data_dir: PathBuf,
     pub log_level: String,
     pub mode: NodeMode,
@@ -77,6 +131,16 @@ pub struct NodeConfig {
 }
 
 impl NodeConfig {
+    /// Trimmed moniker, or `None` when unset/blank.
+    pub fn display_moniker(&self) -> Option<&str> {
+        let m = self.moniker.trim();
+        if m.is_empty() {
+            None
+        } else {
+            Some(m)
+        }
+    }
+
     pub fn is_model_allowed(&self, model_id: &str) -> bool {
         let included = self.include_models.is_empty()
             || self
@@ -183,6 +247,13 @@ pub struct SettlementConfig {
     /// Must be > 0 to satisfy `openSession`'s `BadAmount` revert. Default: 1e18 (1 unit at 18 decimals).
     #[serde(default = "default_session_min_deposit")]
     pub session_min_deposit: u64,
+    /// When true and `[router].enabled`, the node does not submit `recordUsage` (router meters instead).
+    #[serde(default = "default_true")]
+    pub router_usage_metering: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 fn default_session_min_deposit() -> u64 {
@@ -210,6 +281,10 @@ pub fn load(config_path: Option<&Path>) -> Result<Config> {
         .context("failed to deserialize config")?;
 
     cfg.node.data_dir = expand_home(cfg.node.data_dir);
+    cfg.node.moniker = crate::metadata_uri::normalize_moniker(&cfg.node.moniker)?;
+    for entry in &cfg.models {
+        entry.validate().context("invalid [[models]] entry")?;
+    }
     Ok(cfg)
 }
 
@@ -249,5 +324,76 @@ fn default_settlement_tee_tick_secs() -> u64 {
 
 fn default_tee_settle_tokens_threshold() -> u64 {
     256
+}
+
+#[cfg(test)]
+mod tests {
+    fn minimal_toml(moniker_line: &str) -> String {
+        format!(
+            r#"
+[node]
+{moniker_line}
+data_dir = "./data"
+log_level = "info"
+mode = "solo"
+
+[network]
+listen_addrs = ["/ip4/127.0.0.1/tcp/30333"]
+inference_port = 9944
+bootstrap_peers = []
+
+[backend]
+url = "http://127.0.0.1:1"
+health_path = "/health"
+models_path = "/v1/models"
+timeout_secs = 1
+
+[attestation]
+nras_url = "http://127.0.0.1"
+nras_enabled = false
+cert_ttl_days = 1
+
+[registry]
+heartbeat_secs = 60
+enabled = false
+
+[settlement]
+epoch_secs = 60
+evm_rpc_url = "http://127.0.0.1"
+escrow_contract = "0x0000000000000000000000000000000000000000"
+enabled = false
+"#,
+            moniker_line = moniker_line
+        )
+    }
+
+    fn write_temp_config(toml: &str) -> std::path::PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "sparkl-config-test-{}.toml",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::write(&path, toml).unwrap();
+        path
+    }
+
+    #[test]
+    fn moniker_name_alias_deserializes() {
+        let path = write_temp_config(&minimal_toml(r#"name = "legacy-name""#));
+        let cfg = super::load(Some(&path)).unwrap();
+        assert_eq!(cfg.node.moniker, "legacy-name");
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn load_rejects_moniker_over_128() {
+        let long = "x".repeat(129);
+        let path = write_temp_config(&minimal_toml(&format!(r#"moniker = "{long}""#)));
+        let err = super::load(Some(&path)).unwrap_err();
+        assert!(err.to_string().contains("128"));
+        let _ = std::fs::remove_file(path);
+    }
 }
 

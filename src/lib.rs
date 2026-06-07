@@ -1,7 +1,10 @@
 pub mod attestation;
+pub mod capacity;
 pub mod cli;
 pub mod config;
 pub mod identity;
+pub mod metadata_uri;
+pub mod models;
 pub mod network;
 pub mod proxy;
 pub mod receipts;

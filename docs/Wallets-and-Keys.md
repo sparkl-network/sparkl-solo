@@ -52,7 +52,9 @@ These never replace the operator EOA for `registerNode`, `recordUsage`, etc.
 | Update payout, metadata, active flag | `setNodePayout`, `setNodeMetadata`, `setNodeActive` | `nodeOperator` |
 | Chill / defunct | `chillNode`, `markDefunct` | `nodeOperator` |
 | Rotate encryption key | `rotateEncryptionKey` | `nodeOperator` |
-| Record usage (claims metering) | `SettlementEscrow.recordUsage` | `nodeOperator(session.nodeId)` |
+| Record usage (provider path) | `SettlementEscrow.recordUsage` | `nodeOperator(session.nodeId)` |
+| Record usage (router path) | `SettlementEscrow.recordUsage` | `recordUsageRole` (sparkl-router hot key) |
+| Protocol fee accrual | `SettlementEscrow` settle | 1% of gross `toProvider` → `protocolBalances` (treasury withdraws native DOT) |
 | Withdraw earned balance | `SettlementEscrow.withdrawProviderDot` | `nodeOperator(nodeId)` — paid to **operator EOA**, not `payout` today |
 | TEE PoR (off-chain) | Attestation stub | EIP-191 `personal_sign` by **same EOA** as `nodeOperator` |
 
@@ -67,7 +69,23 @@ These never replace the operator EOA for `registerNode`, `recordUsage`, etc.
 
 There is **no separate on-chain “node EVM wallet”** — only **`nodeOperator`**. The TOML field `evm_provider_wallet_private_key` is the **operator hot key** loaded on the server.
 
-### 2. Settlement operator EOA (network-wide, not per node)
+### 2. Router `recordUsage` role EOA
+
+**On-chain name:** `SettlementEscrow.recordUsageRole`.
+
+**Used for:** Batched `recordUsage` txs when consumers use sparkl-router (metering from upstream `usage` JSON).
+
+**Where configured:** `[settlement]` in [sparkl-router/config.example.toml](../../sparkl-router/config.example.toml). By default the router **generates** `data_dir/record-usage-key.json` at startup; optional `record_usage_private_key` overrides. **`registry_owner_private_key`** (registry owner) submits `setRecordUsage` when the on-chain role does not match. Local `launch-local.sh` / deploy sync sets the Anvil deployer key as owner; `DeployLocal` may still pre-assign a role address.
+
+**Gas funding:** Withdraw from `protocolTreasury` via `withdrawProtocolDot` after session settles (1% protocol fee), then send native DOT to the recordUsage role EOA.
+
+### 3. Protocol treasury EOA
+
+**On-chain name:** `SettlementEscrow.protocolTreasury`.
+
+**Used for:** Accrued protocol fee balance (`protocolBalances`); `withdrawProtocolDot` pays native DOT to the treasury wallet.
+
+### 4. Settlement operator EOA (network-wide, not per node)
 
 **On-chain name:** `SettlementEscrow.settlementOperator`.
 
@@ -75,7 +93,7 @@ There is **no separate on-chain “node EVM wallet”** — only **`nodeOperator
 
 **Where configured:** `settlement.evm_settlement_operator_wallet_private_key` on a settlement worker. Must match contract `settlementOperator`. Usually **separate** from the node operator key.
 
-### 3. End user / consumer EOA
+### 5. End user / consumer EOA
 
 **Used for:** `deposit*`, `openSession`, user `settlePartial` / `settleFull`, `withdrawDot`.
 
@@ -105,16 +123,16 @@ All nodes share **`nodeOperator`**; the chain distinguishes them by **`nodeId`**
 
 Each registration from a different EOA; each node TOML uses **that** node’s operator key.
 
-### Pattern C — portal register, node submits chain txs
+### Pattern C — portal commercial register, node submits operational chain txs (MVP)
 
-Operator registers via portal (browser wallet = `nodeOperator`). The node process only auto-submits txs if TOML includes the matching operator private key.
+Operator **commercially registers** via portal (browser wallet = `nodeOperator`). The node process uses `evm_provider_wallet_private_key` for `recordUsage`, optional `setTEEProof` heartbeat, etc. — **not** for `registerNode` in MVP.
 
 ## Task matrix (quick reference)
 
 | Task | Signer / key |
 |------|----------------|
-| Register node (portal) | Operator browser EOA |
-| Register node (node startup) | `evm_provider_wallet_private_key` |
+| Commercial register node (portal, MVP) | Operator browser EOA |
+| `registerNode` from node startup | **Not used in MVP** — portal only |
 | Probe / identity HTTP | Libp2p PeerId + optional Ed25519 proof |
 | Encrypted inference | Node X25519 |
 | Chunk receipts | Node Ed25519 |

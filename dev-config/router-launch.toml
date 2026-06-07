@@ -1,0 +1,27 @@
+[server]
+bind = "127.0.0.1:3001"
+router_url = "http://127.0.0.1:3001"
+upstream_timeout_secs = 120
+
+[chain]
+rpc_url = "http://127.0.0.1:8545"
+registry_contract = "0x720472c8ce72c2A2D711333e064ABD3E6BbEAdd3"
+escrow_contract = "0xe8D2A1E88c91DCd5433208d4152Cc4F399a7e91d"
+session_cache_ttl_secs = 12
+enabled = true
+
+[node_auth]
+ping_interval_secs = 30
+pong_timeout_secs = 10
+
+[metrics]
+bind = "127.0.0.1:9091"
+
+[portal]
+admin_token = "dev-admin-token-change-me"
+stale_threshold_secs = 40
+models_refresh_on_pong_secs = 60
+
+[capacity]
+queue_depth_ratio = 1.0
+queue_wait_timeout_secs = 60

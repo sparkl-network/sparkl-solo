@@ -76,6 +76,7 @@ pub(crate) async fn process_settlement_tick(
     epoch_boundary: bool,
     tee_candidates: &[Session],
     tee_last_eligible_block: &mut Option<u64>,
+    skip_provider_record_usage: bool,
 ) {
     if !epoch_boundary && !tee_tick_now {
         return;
@@ -229,14 +230,16 @@ pub(crate) async fn process_settlement_tick(
                         );
                     }
 
-                    sync_token_usage_on_chain(
-                        &escrow_node_operator,
-                        sessions.clone(),
-                        session_id,
-                        &session,
-                        chain_sid_u64,
-                    )
-                    .await?;
+                    if !skip_provider_record_usage {
+                        sync_token_usage_on_chain(
+                            &escrow_node_operator,
+                            sessions.clone(),
+                            session_id,
+                            &session,
+                            chain_sid_u64,
+                        )
+                        .await?;
+                    }
 
                     let chain_sess = escrow_read
                         .sessions(session_id)
@@ -391,14 +394,16 @@ pub(crate) async fn process_settlement_tick(
                     );
                 }
 
-                sync_token_usage_on_chain(
-                    &escrow_node_operator,
-                    sessions.clone(),
-                    session_id,
-                    &session,
-                    chain_sid_u64,
-                )
-                .await?;
+                if !skip_provider_record_usage {
+                    sync_token_usage_on_chain(
+                        &escrow_node_operator,
+                        sessions.clone(),
+                        session_id,
+                        &session,
+                        chain_sid_u64,
+                    )
+                    .await?;
+                }
 
                 let chain_sess = escrow_read
                     .sessions(session_id)
@@ -611,7 +616,7 @@ pub async fn open_session_on_chain(
     );
 
     let pending = escrow
-        .openSession(node_id.into(), tier_u8, model_id, deposit_u256)
+        .openSession(node_id.into(), tier_u8, model_id, deposit_u256, String::new())
         .value(deposit_u256)
         .send()
         .await

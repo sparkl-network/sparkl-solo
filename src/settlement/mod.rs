@@ -10,7 +10,7 @@ use sha2::{Digest, Sha256};
 use tokio::time::sleep;
 use tracing::{info, warn};
 
-use crate::config::SettlementConfig;
+use crate::config::{RouterConfig, SettlementConfig};
 use crate::identity::NodeIdentity;
 use crate::session::{Session, SessionManager};
 use crate::store::Store;
@@ -32,6 +32,7 @@ pub async fn run_epoch_loop(
     store: Arc<Store>,
     identity: Arc<NodeIdentity>,
     config: SettlementConfig,
+    router: RouterConfig,
 ) {
     if !config.enabled {
         warn!("settlement disabled; running log-only mode");
@@ -98,15 +99,20 @@ pub async fn run_epoch_loop(
         }
 
         #[cfg(feature = "evm-settlement")]
-        evm::process_settlement_tick(
-            &config,
-            sessions.clone(),
-            tee_tick_now,
-            epoch_boundary,
-            &tee_candidates,
-            &mut tee_last_eligible_block,
-        )
-        .await;
+        {
+            let skip_provider_record_usage =
+                router.enabled && config.router_usage_metering;
+            evm::process_settlement_tick(
+                &config,
+                sessions.clone(),
+                tee_tick_now,
+                epoch_boundary,
+                &tee_candidates,
+                &mut tee_last_eligible_block,
+                skip_provider_record_usage,
+            )
+            .await;
+        }
     }
 }
 

@@ -8,6 +8,7 @@ use tokio::sync::mpsc;
 use tokio::sync::RwLock;
 
 use crate::attestation::NrasRuntimeState;
+use crate::capacity::ModelAdmission;
 use crate::config::Config;
 use crate::identity::NodeIdentity;
 use crate::network::SwarmCommand;
@@ -30,6 +31,7 @@ pub struct AppState {
     pub identity: NodeIdentity,
     pub proxy: Arc<BackendProxy>,
     pub sessions: Arc<SessionManager>,
+    pub admission: ModelAdmission,
     pub swarm_cmd: Option<mpsc::Sender<SwarmCommand>>,
     pub started_at: DateTime<Utc>,
     pub nras_state: Arc<RwLock<NrasRuntimeState>>,
@@ -38,16 +40,22 @@ pub struct AppState {
 pub fn router(state: AppState) -> Router {
     let settlement_auth = state.config.settlement.enabled;
 
-    let mut openai = Router::new()
-        .route("/v1/models", get(models::list_models))
-        .route("/v1/chat/completions", post(inference::chat_completions));
-
+    // Model listing is public on the node so sparkl-router can refresh the union catalog
+    // over the WSS tunnel without a consumer session bearer.
+    let mut chat = Router::new().route(
+        "/v1/chat/completions",
+        post(inference::chat_completions),
+    );
     if settlement_auth {
-        openai = openai.route_layer(from_fn_with_state(
+        chat = chat.route_layer(from_fn_with_state(
             state.clone(),
             auth::require_session_bearer,
         ));
     }
+
+    let openai = Router::new()
+        .route("/v1/models", get(models::list_models))
+        .merge(chat);
 
     Router::new()
         .route("/health", get(health::health))
@@ -66,6 +74,3 @@ pub fn router(state: AppState) -> Router {
         .with_state(state)
 }
 
-pub fn is_model_allowed(state: &AppState, model_id: &str) -> bool {
-    state.config.node.is_model_allowed(model_id)
-}

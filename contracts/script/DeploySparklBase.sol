@@ -80,8 +80,15 @@ abstract contract DeploySparklBase is Script {
         console2.log("SparklNetworkConfig CREATE2 predicted:", predictedNetCfg);
         console2.logBytes32(NETWORK_CONFIG_SALT);
 
-        SparklNetworkConfig netCfg = new SparklNetworkConfig{salt: NETWORK_CONFIG_SALT}(registryOwner);
-        require(address(netCfg) == predictedNetCfg, "SparklNetworkConfig CREATE2 address mismatch");
+        SparklNetworkConfig netCfg;
+        if (predictedNetCfg.code.length > 0) {
+            console2.log("SparklNetworkConfig already at CREATE2; updating addresses");
+            netCfg = SparklNetworkConfig(predictedNetCfg);
+            require(netCfg.owner() == registryOwner, "SparklNetworkConfig: owner mismatch");
+        } else {
+            netCfg = new SparklNetworkConfig{salt: NETWORK_CONFIG_SALT}(registryOwner);
+            require(address(netCfg) == predictedNetCfg, "SparklNetworkConfig CREATE2 address mismatch");
+        }
         netCfg.setAddresses(
             address(registry), address(escrow), address(priceOracle), address(modelPriceOracle)
         );

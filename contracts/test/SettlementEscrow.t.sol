@@ -26,6 +26,8 @@ contract SettlementEscrowTest is Test {
     address internal providerA = address(0xB00B);
     address internal payout = address(0xCAFE);
     address internal alice = address(0xA11CE);
+    address internal routerMeter = address(0x1001);
+    address internal treasury = address(0x7EA5);
 
     /// @dev USDC (6-dec) smallest per 1e18 internal DOT: baseline ~1.34 USD/DOT (May 2026 spot).
     uint256 internal constant USDC_PER_DOT = 1_340_000;
@@ -65,6 +67,12 @@ contract SettlementEscrowTest is Test {
         reg.setSettlementEscrow(address(esc));
         vm.prank(owner);
         esc.setTeePriceMultiplierBps(10_000);
+        vm.prank(owner);
+        esc.setRecordUsage(routerMeter);
+        vm.prank(owner);
+        esc.setProtocolTreasury(treasury);
+        vm.prank(owner);
+        esc.setProtocolFeeBps(100);
 
         vm.prank(providerA);
         reg.registerNode(_nid(providerA), payout, true, true, "", bytes32(0));
@@ -91,7 +99,7 @@ contract SettlementEscrowTest is Test {
         escNoPrice.depositDot{value: 10 ** 10}();
         vm.prank(alice);
         vm.expectRevert(MockModelPriceOracle.InvalidPrice.selector);
-        escNoPrice.openSession(_nid(providerA), SecurityTier.TEE_VERIFIED, TEST_MODEL, 10 ** 18);
+        escNoPrice.openSession(_nid(providerA), SecurityTier.TEE_VERIFIED, TEST_MODEL, 10 ** 18, "");
     }
 
     function test_recordUsage_oracle_billing_and_tee_multiplier() public {
@@ -101,14 +109,13 @@ contract SettlementEscrowTest is Test {
         vm.prank(alice);
         esc.depositDot{value: 10 ** 11}();
         vm.prank(alice);
-        esc.openSession(_nid(providerA), SecurityTier.TEE_VERIFIED, TEST_MODEL, 10 ** 18);
+        esc.openSession(_nid(providerA), SecurityTier.TEE_VERIFIED, TEST_MODEL, 10 ** 18, "");
 
         vm.prank(providerA);
         esc.recordUsage(0, 1000, 500);
         uint256 base = (1000 * INPUT_PER1K) / 1000 + (500 * OUTPUT_PER1K) / 1000;
         uint256 expected = (base * 15_000) / 10_000;
-        (,,,,, uint256 usage,,,,,,) = esc.sessions(0);
-        assertEq(usage, expected);
+        assertEq(esc.sessions(0).usageRecorded, expected);
     }
 
     function test_recordUsage_unknown_model_uses_default() public {
@@ -118,12 +125,11 @@ contract SettlementEscrowTest is Test {
         vm.prank(alice);
         esc.depositDot{value: 10 ** 11}();
         vm.prank(alice);
-        esc.openSession(_nid(providerA), SecurityTier.BEST_EFFORT, unknown, 10 ** 18);
+        esc.openSession(_nid(providerA), SecurityTier.BEST_EFFORT, unknown, 10 ** 18, "");
 
         vm.prank(providerA);
         esc.recordUsage(0, 2000, 0);
-        (,,,,, uint256 usage,,,,,,) = esc.sessions(0);
-        assertEq(usage, (2000 * 50_000) / 1000);
+        assertEq(esc.sessions(0).usageRecorded, (2000 * 50_000) / 1000);
     }
 
     function test_depositDot_wei18_roundTrip() public {
@@ -279,7 +285,7 @@ contract SettlementEscrowTest is Test {
         uint256 amountInternal = 3 * 10 ** 18;
         uint256 circBefore = esc.internalCirculating();
         vm.prank(alice);
-        esc.openSession(_nid(providerB), SecurityTier.BEST_EFFORT, TEST_MODEL, amountInternal);
+        esc.openSession(_nid(providerB), SecurityTier.BEST_EFFORT, TEST_MODEL, amountInternal, "");
 
         assertEq(esc.nextSessionId(), 1);
         assertEq(esc.totalLockedInternal(), amountInternal);
@@ -294,7 +300,7 @@ contract SettlementEscrowTest is Test {
         vm.prank(alice);
         esc.depositDot{value: 5 * 10 ** 10}();
         vm.prank(alice);
-        esc.openSession(nid, SecurityTier.TEE_VERIFIED, TEST_MODEL, lockAmt);
+        esc.openSession(nid, SecurityTier.TEE_VERIFIED, TEST_MODEL, lockAmt, "");
         assertEq(esc.openSessionCountByNode(nid), 1);
 
         vm.prank(providerA);
@@ -315,7 +321,7 @@ contract SettlementEscrowTest is Test {
         reg.chillNode(_nid(providerA));
         vm.prank(alice);
         vm.expectRevert(SettlementEscrow.UnsupportedTier.selector);
-        esc.openSession(_nid(providerA), SecurityTier.TEE_VERIFIED, TEST_MODEL, amt);
+        esc.openSession(_nid(providerA), SecurityTier.TEE_VERIFIED, TEST_MODEL, amt, "");
     }
 
     function test_markDefunct_reverts_while_open_session_counter_positive() public {
@@ -323,7 +329,7 @@ contract SettlementEscrowTest is Test {
         vm.prank(alice);
         esc.depositDot{value: 10 * (10 ** 10)}();
         vm.prank(alice);
-        esc.openSession(nid, SecurityTier.TEE_VERIFIED, TEST_MODEL, 10 ** 18);
+        esc.openSession(nid, SecurityTier.TEE_VERIFIED, TEST_MODEL, 10 ** 18, "");
         vm.prank(providerA);
         reg.chillNode(nid);
         vm.prank(providerA);
@@ -337,7 +343,7 @@ contract SettlementEscrowTest is Test {
         vm.prank(alice);
         esc.depositDot{value: 10 * (10 ** 10)}();
         vm.prank(alice);
-        esc.openSession(nid, SecurityTier.TEE_VERIFIED, TEST_MODEL, lockAmt);
+        esc.openSession(nid, SecurityTier.TEE_VERIFIED, TEST_MODEL, lockAmt, "");
         vm.prank(providerA);
         esc.recordUsage(0, 1_000_000, 0);
         vm.prank(providerA);
@@ -350,22 +356,35 @@ contract SettlementEscrowTest is Test {
         assertEq(uint8(reg.getProvider(nid).lifecycle), uint8(NodeLifecycle.Defunct));
     }
 
+    function test_openSession_snapshots_pricing() public {
+        vm.prank(alice);
+        esc.depositDot{value: 10 ** 11}();
+        vm.prank(alice);
+        esc.openSession(_nid(providerA), SecurityTier.BEST_EFFORT, TEST_MODEL, 10 ** 18, "test4");
+
+        SettlementEscrow.Session memory snap = esc.sessions(0);
+        assertEq(snap.inputPricePer1kAtOpen, INPUT_PER1K);
+        assertEq(snap.outputPricePer1kAtOpen, OUTPUT_PER1K);
+        assertEq(snap.usdcPerDotAtOpen, USDC_PER_DOT);
+        assertFalse(snap.pricingUsedDefault);
+    }
+
     function test_openSession_payable_native() public {
         uint256 amountInternal = 2 * 10 ** 18;
         uint256 native = 2 * 10 ** 10;
 
         vm.prank(alice);
-        esc.openSession{value: native}(_nid(providerA), SecurityTier.TEE_VERIFIED, TEST_MODEL, amountInternal);
+        esc.openSession{value: native}(_nid(providerA), SecurityTier.TEE_VERIFIED, TEST_MODEL, amountInternal, "");
 
         assertEq(esc.dotBalances(alice), 0);
         assertEq(address(esc).balance, native);
         assertEq(esc.internalCirculating(), amountInternal);
         assertEq(esc.totalLockedInternal(), amountInternal);
-        (, bytes32 nid,, SecurityTier t, uint256 locked,,, uint256 opening,,,,) = esc.sessions(0);
-        assertEq(nid, _nid(providerA));
-        assertEq(uint8(t), uint8(SecurityTier.TEE_VERIFIED));
-        assertEq(locked, amountInternal);
-        assertEq(opening, amountInternal);
+        SettlementEscrow.Session memory opened = esc.sessions(0);
+        assertEq(opened.nodeId, _nid(providerA));
+        assertEq(uint8(opened.tier), uint8(SecurityTier.TEE_VERIFIED));
+        assertEq(opened.lockedInternal, amountInternal);
+        assertEq(opened.openingInternal, amountInternal);
     }
 
     function test_openSession_revert_unsupportedTier() public {
@@ -376,7 +395,7 @@ contract SettlementEscrowTest is Test {
         uint256 amountInternal = 1 * 10 ** 18;
         vm.prank(alice);
         vm.expectRevert(SettlementEscrow.UnsupportedTier.selector);
-        esc.openSession(_nid(providerB), SecurityTier.TEE_VERIFIED, TEST_MODEL, amountInternal);
+        esc.openSession(_nid(providerB), SecurityTier.TEE_VERIFIED, TEST_MODEL, amountInternal, "");
     }
 
     function test_tieredProvider_teeSessionRequiresAttestation() public {
@@ -387,23 +406,23 @@ contract SettlementEscrowTest is Test {
         uint256 amt = 1 ether;
         vm.prank(alice);
         vm.expectRevert(SettlementEscrow.UnsupportedTier.selector);
-        esc.openSession(_nid(hybrid), SecurityTier.TEE_VERIFIED, TEST_MODEL, amt);
+        esc.openSession(_nid(hybrid), SecurityTier.TEE_VERIFIED, TEST_MODEL, amt, "");
 
         vm.prank(alice);
         vm.expectRevert(SettlementEscrow.InsufficientBalance.selector);
-        esc.openSession(_nid(hybrid), SecurityTier.BEST_EFFORT, TEST_MODEL, amt);
+        esc.openSession(_nid(hybrid), SecurityTier.BEST_EFFORT, TEST_MODEL, amt, "");
 
         vm.prank(alice);
         esc.depositDot{value: 5 * 10 ** 10}();
 
         vm.prank(alice);
-        esc.openSession(_nid(hybrid), SecurityTier.BEST_EFFORT, TEST_MODEL, amt);
+        esc.openSession(_nid(hybrid), SecurityTier.BEST_EFFORT, TEST_MODEL, amt, "");
 
         vm.prank(attestation);
         reg.setTEEProof(_nid(hybrid), bytes32(uint256(0xcee)));
 
         vm.prank(alice);
-        esc.openSession(_nid(hybrid), SecurityTier.TEE_VERIFIED, TEST_MODEL, amt);
+        esc.openSession(_nid(hybrid), SecurityTier.TEE_VERIFIED, TEST_MODEL, amt, "");
     }
 
     /// @notice `registerNode` may set `supportsTEE`, but `supportsTier(TEE_VERIFIED)` still requires attestation hash.
@@ -430,7 +449,7 @@ contract SettlementEscrowTest is Test {
         esc.depositDot{value: 10 * 10 ** 10}();
 
         vm.prank(alice);
-        esc.openSession(_nid(providerA), SecurityTier.TEE_VERIFIED, TEST_MODEL, lockAmt);
+        esc.openSession(_nid(providerA), SecurityTier.TEE_VERIFIED, TEST_MODEL, lockAmt, "");
 
         assertEq(esc.totalLockedInternal(), lockAmt);
 
@@ -439,29 +458,31 @@ contract SettlementEscrowTest is Test {
 
         vm.prank(providerA);
         esc.recordUsage(0, 2_000_000, 0);
-        (,,,, uint256 lockedAfterRecord,,,,,,,) = esc.sessions(0);
-        assertEq(lockedAfterRecord, lockAmt);
-        (,,,,, uint256 usage,,,,,,) = esc.sessions(0);
-        assertEq(usage, 3 * 10 ** 18);
+        SettlementEscrow.Session memory mid = esc.sessions(0);
+        assertEq(mid.lockedInternal, lockAmt);
+        assertEq(mid.usageRecorded, 3 * 10 ** 18);
 
         vm.prank(alice);
         esc.settlePartial(0, 3 * 10 ** 18, 2 * 10 ** 18);
-        assertEq(esc.providerBalances(_nid(providerA)), 3 * 10 ** 18);
+        uint256 gross = 3 * 10 ** 18;
+        uint256 fee = (gross * 100) / 10_000;
+        assertEq(esc.providerBalances(_nid(providerA)), gross - fee);
+        assertEq(esc.protocolBalances(), fee);
         assertEq(esc.dotBalances(alice), 2 * 10 ** 18);
         assertEq(esc.totalLockedInternal(), 5 * 10 ** 18);
-        (,,,, uint256 locked2,,,,, bool settledMid,,) = esc.sessions(0);
-        assertEq(locked2, 5 * 10 ** 18);
-        assertFalse(settledMid);
+        SettlementEscrow.Session memory afterPartial = esc.sessions(0);
+        assertEq(afterPartial.lockedInternal, 5 * 10 ** 18);
+        assertFalse(afterPartial.settled);
 
         vm.prank(alice);
         esc.settleFull(0, 0, 5 * 10 ** 18);
         assertEq(esc.totalLockedInternal(), 0);
 
-        (,,,, uint256 locked3,,,,, bool settledFinal,,) = esc.sessions(0);
-        assertEq(locked3, 0);
-        assertTrue(settledFinal);
+        SettlementEscrow.Session memory finalS = esc.sessions(0);
+        assertEq(finalS.lockedInternal, 0);
+        assertTrue(finalS.settled);
 
-        assertEq(esc.providerBalances(_nid(providerA)), 3 * 10 ** 18);
+        assertEq(esc.providerBalances(_nid(providerA)), gross - fee);
         vm.deal(address(esc), address(esc).balance + 100 ether);
 
         vm.prank(payout);
@@ -471,11 +492,11 @@ contract SettlementEscrowTest is Test {
         uint256 providerNativeBefore = providerA.balance;
 
         vm.prank(providerA);
-        esc.withdrawProviderDot(_nid(providerA), 3 * 10 ** 18);
+        esc.withdrawProviderDot(_nid(providerA), gross - fee);
 
         assertGt(providerA.balance, providerNativeBefore);
         assertEq(esc.providerBalances(_nid(providerA)), 0);
-        assertEq(esc.internalCirculating(), 7 * 10 ** 18);
+        assertEq(esc.internalCirculating(), 7 * 10 ** 18 + fee);
     }
 
     function test_recordUsageAndSettleRevertAfterSettled() public {
@@ -483,7 +504,7 @@ contract SettlementEscrowTest is Test {
         esc.depositDot{value: 10 ** 11}(); // 10 dot internal
 
         vm.prank(alice);
-        esc.openSession(_nid(providerA), SecurityTier.TEE_VERIFIED, TEST_MODEL, 10 ** 18);
+        esc.openSession(_nid(providerA), SecurityTier.TEE_VERIFIED, TEST_MODEL, 10 ** 18, "");
 
         vm.prank(alice);
         esc.settleFull(0, 0, 10 ** 18);
@@ -501,13 +522,13 @@ contract SettlementEscrowTest is Test {
         uint256 amountInternal = 1 * 10 ** 18;
         vm.prank(alice);
         vm.expectRevert(SettlementEscrow.BadAmount.selector);
-        esc.openSession{value: 1}(_nid(providerA), SecurityTier.TEE_VERIFIED, TEST_MODEL, amountInternal);
+        esc.openSession{value: 1}(_nid(providerA), SecurityTier.TEE_VERIFIED, TEST_MODEL, amountInternal, "");
     }
 
     function test_openSession_revert_insufficientBalancePath() public {
         vm.prank(alice);
         vm.expectRevert(SettlementEscrow.InsufficientBalance.selector);
-        esc.openSession(_nid(providerA), SecurityTier.TEE_VERIFIED, TEST_MODEL, 10 ** 18);
+        esc.openSession(_nid(providerA), SecurityTier.TEE_VERIFIED, TEST_MODEL, 10 ** 18, "");
     }
 
     function test_settle_partial_revert_notUser() public {
@@ -515,7 +536,7 @@ contract SettlementEscrowTest is Test {
         esc.depositDot{value: 10 ** 11}();
 
         vm.prank(alice);
-        esc.openSession(_nid(providerA), SecurityTier.TEE_VERIFIED, TEST_MODEL, 10 ** 18);
+        esc.openSession(_nid(providerA), SecurityTier.TEE_VERIFIED, TEST_MODEL, 10 ** 18, "");
 
         vm.prank(providerA);
         vm.expectRevert(SettlementEscrow.NotSessionUser.selector);
@@ -545,14 +566,14 @@ contract SettlementEscrowTest is Test {
         esc.depositDot{value: 10 ** 14}(); // abundant internal DOT
 
         vm.prank(alice);
-        esc.openSession(_nid(bee), SecurityTier.BEST_EFFORT, TEST_MODEL, 10 ** 18);
+        esc.openSession(_nid(bee), SecurityTier.BEST_EFFORT, TEST_MODEL, 10 ** 18, "");
 
         vm.prank(alice);
         vm.expectRevert(SettlementEscrow.UnsupportedTier.selector);
-        esc.openSession(_nid(teeExclusive), SecurityTier.BEST_EFFORT, TEST_MODEL, 10 ** 18);
+        esc.openSession(_nid(teeExclusive), SecurityTier.BEST_EFFORT, TEST_MODEL, 10 ** 18, "");
 
         vm.prank(alice);
-        esc.openSession(_nid(teeExclusive), SecurityTier.TEE_VERIFIED, TEST_MODEL, 10 ** 18);
+        esc.openSession(_nid(teeExclusive), SecurityTier.TEE_VERIFIED, TEST_MODEL, 10 ** 18, "");
     }
 
     function test_setSettlementOperator_registryOwner_only() public {
@@ -574,7 +595,7 @@ contract SettlementEscrowTest is Test {
         esc.depositDot{value: 10 ** 11}();
 
         vm.prank(alice);
-        esc.openSession(_nid(providerA), SecurityTier.TEE_VERIFIED, TEST_MODEL, 10 ** 18);
+        esc.openSession(_nid(providerA), SecurityTier.TEE_VERIFIED, TEST_MODEL, 10 ** 18, "");
 
         vm.prank(providerA);
         esc.recordUsage(0, 100_000, 0);
@@ -594,7 +615,7 @@ contract SettlementEscrowTest is Test {
         esc.depositDot{value: 10 ** 10}();
 
         vm.prank(alice);
-        esc.openSession(_nid(providerA), SecurityTier.TEE_VERIFIED, TEST_MODEL, 10 ** 18);
+        esc.openSession(_nid(providerA), SecurityTier.TEE_VERIFIED, TEST_MODEL, 10 ** 18, "");
 
         vm.prank(providerA);
         esc.recordUsage(0, 500_000, 0);
@@ -603,10 +624,12 @@ contract SettlementEscrowTest is Test {
         esc.settleByOperatorFull(0, 5 * 10 ** 17, 10 ** 18 - 5 * 10 ** 17);
 
         assertEq(esc.totalLockedInternal(), 0);
-        assertEq(esc.providerBalances(_nid(providerA)), 5 * 10 ** 17);
-        assertEq(esc.dotBalances(alice), 10 ** 18 - 5 * 10 ** 17);
-        (,,,,,,,,, bool settled,,) = esc.sessions(0);
-        assertTrue(settled);
+        uint256 opGross = 5 * 10 ** 17;
+        uint256 opFee = (opGross * 100) / 10_000;
+        assertEq(esc.providerBalances(_nid(providerA)), opGross - opFee);
+        assertEq(esc.protocolBalances(), opFee);
+        assertEq(esc.dotBalances(alice), 10 ** 18 - opGross);
+        assertTrue(esc.sessions(0).settled);
     }
 
     function test_settleByOperator_revert_not_operator() public {
@@ -617,7 +640,7 @@ contract SettlementEscrowTest is Test {
         esc.depositDot{value: 10 ** 10}();
 
         vm.prank(alice);
-        esc.openSession(_nid(providerA), SecurityTier.TEE_VERIFIED, TEST_MODEL, 10 ** 18);
+        esc.openSession(_nid(providerA), SecurityTier.TEE_VERIFIED, TEST_MODEL, 10 ** 18, "");
 
         vm.prank(providerA);
         esc.recordUsage(0, 100_000, 0);
@@ -625,5 +648,112 @@ contract SettlementEscrowTest is Test {
         vm.prank(alice);
         vm.expectRevert(SettlementEscrow.NotSettlementOperator.selector);
         esc.settleByOperatorFull(0, 10 ** 17, 10 ** 18 - 10 ** 17);
+    }
+
+    function test_openSession_name_roundtrip() public {
+        vm.prank(alice);
+        esc.depositDot{value: 10 ** 11}();
+
+        string memory label = "my-qwen-session";
+        vm.prank(alice);
+        esc.openSession(_nid(providerA), SecurityTier.TEE_VERIFIED, TEST_MODEL, 10 ** 18, label);
+
+        assertEq(esc.sessions(0).name, label);
+    }
+
+    function test_openSession_name_max_128_bytes() public {
+        vm.prank(alice);
+        esc.depositDot{value: 10 ** 11}();
+
+        string memory label = string(
+            abi.encodePacked(
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            )
+        );
+
+        vm.prank(alice);
+        esc.openSession(_nid(providerA), SecurityTier.TEE_VERIFIED, TEST_MODEL, 10 ** 18, label);
+
+        assertEq(bytes(esc.sessions(0).name).length, 128);
+        assertEq(esc.sessions(0).name, label);
+    }
+
+    function test_openSession_revert_name_too_long() public {
+        vm.prank(alice);
+        esc.depositDot{value: 10 ** 11}();
+
+        string memory label = string(
+            abi.encodePacked(
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "a"
+            )
+        );
+
+        vm.prank(alice);
+        vm.expectRevert(SettlementEscrow.BadSessionName.selector);
+        esc.openSession(_nid(providerA), SecurityTier.TEE_VERIFIED, TEST_MODEL, 10 ** 18, label);
+    }
+
+    function test_recordUsage_role_holder() public {
+        vm.prank(alice);
+        esc.depositDot{value: 10 ** 11}();
+        vm.prank(alice);
+        esc.openSession(_nid(providerA), SecurityTier.TEE_VERIFIED, TEST_MODEL, 10 ** 18, "");
+
+        vm.prank(routerMeter);
+        esc.recordUsage(0, 1000, 500);
+        assertEq(esc.sessions(0).usageRecorded, _usageFromTokens(1000, 500, true));
+    }
+
+    function test_recordUsage_revert_unauthorized() public {
+        vm.prank(alice);
+        esc.depositDot{value: 10 ** 11}();
+        vm.prank(alice);
+        esc.openSession(_nid(providerA), SecurityTier.TEE_VERIFIED, TEST_MODEL, 10 ** 18, "");
+
+        vm.prank(alice);
+        vm.expectRevert(SettlementEscrow.NotRecordUsage.selector);
+        esc.recordUsage(0, 100, 0);
+    }
+
+    function test_protocol_fee_zero_bps_full_provider() public {
+        vm.prank(owner);
+        esc.setProtocolFeeBps(0);
+
+        vm.prank(alice);
+        esc.depositDot{value: 10 ** 11}();
+        vm.prank(alice);
+        esc.openSession(_nid(providerA), SecurityTier.TEE_VERIFIED, TEST_MODEL, 10 ** 18, "");
+        vm.prank(providerA);
+        esc.recordUsage(0, 1_000_000, 0);
+
+        vm.prank(alice);
+        esc.settlePartial(0, 10 ** 18, 0);
+        assertEq(esc.providerBalances(_nid(providerA)), 10 ** 18);
+        assertEq(esc.protocolBalances(), 0);
+    }
+
+    function test_withdrawProtocolDot() public {
+        vm.prank(alice);
+        esc.depositDot{value: 10 ** 11}();
+        vm.prank(alice);
+        esc.openSession(_nid(providerA), SecurityTier.TEE_VERIFIED, TEST_MODEL, 10 ** 18, "");
+        vm.prank(providerA);
+        esc.recordUsage(0, 1_000_000, 0);
+
+        uint256 gross = 10 ** 18;
+        vm.prank(alice);
+        esc.settlePartial(0, gross, 0);
+        uint256 fee = (gross * 100) / 10_000;
+        assertEq(esc.protocolBalances(), fee);
+
+        vm.deal(address(esc), address(esc).balance + 100 ether);
+        uint256 before = treasury.balance;
+        vm.prank(treasury);
+        esc.withdrawProtocolDot(fee);
+        assertEq(esc.protocolBalances(), 0);
+        assertGt(treasury.balance, before);
     }
 }

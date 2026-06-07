@@ -25,11 +25,68 @@ Solidity sources for these contracts live under `[contracts/](./contracts/)` (Fo
 
 **Local EVM:** from `contracts/`, install [Foundry](https://book.getfoundry.sh/getting-started/installation) (or run `forge`/`anvil` via the official Docker image). Pull `forge-std` if needed: `forge install --no-git foundry-rs/forge-std`. Run `forge test` for unit tests (`ProviderRegistry`, `SettlementEscrow`, mocks).
 
-**One-command local stack** (Anvil + deploy + Rust tests + solo node + `sparkl-oracle-rates` env hints):
+**Launch service individually**
+
+from sparkl-network:
+
+Anvil:
+```bash
+cd /sparkl-solo/contracts && anvil --state ../.launch/anvil-state.json
+```
+
+Contracts (deploy + sync addresses into portal, oracles, router, and solo configs):
+```bash
+# Anvil must be listening on 127.0.0.1:8545 (or use --start-anvil)
+./scripts/deploy-local-sync-env.sh
+# Or start Anvil automatically:
+./scripts/deploy-local-sync-env.sh --start-anvil
+```
+
+Manual deploy only (no env sync):
+```bash
+cd contracts && forge build
+forge script script/DeployLocal.s.sol:DeployLocal --rpc-url http://127.0.0.1:8545 --broadcast
+```
+
+Router:
+```bash
+cd sparkl-router && cargo run -- config/default.toml
+```
+
+```bash
+cd sparkl-solo && cargo run -- --config dev-config/launch.toml
+```
+
+```bash
+cd sparkl-portal && yarn dev
+```
+
+Test the api key against the router api:
+```bash
+export API_KEY=sk_11111111111111111111111111111111HVWf3mkzwrQhcm5PC9LB2oSiH9V7t7DT8EiggHC22ZB
+# test openai inference
+curl -X POST http://localhost:3001/v1/chat/completions \
+-H "Authorization: Bearer $API_KEY" \
+-H "Content-Type: application/json" \
+-d '{
+  "model": "qwen/qwen3.6-27b",
+  "messages": [{"role": "user", "content": "Hello, how are you?"}]
+}'
+```
+
+**One-command local stack** (Anvil + deploy + Rust tests + sparkl-router + solo node + portal/oracle env hints):
 
 ```bash
 ./scripts/launch-local.sh
 ```
+
+**Interactive tmux grid** (2×2 panes: Anvil, router, solo, portal — Ctrl+C and up-arrow per pane). Run from **`sparkl-network/`**:
+
+```bash
+cd sparkl-network && ./scripts/launch-grid.sh
+```
+
+Prep deploys contracts (if needed), syncs ABIs, writes `sparkl-solo/dev-config/launch.toml`, `sparkl-solo/dev-config/router-launch.toml`, and `sparkl-portal/.env.local`, then starts a detached `sparkl-grid` tmux session. Use `--no-attach` to leave tmux in the background; `--attach-only` to reattach.
 
 Options:
 
@@ -37,12 +94,15 @@ Options:
 |------|--------|
 | `--skip-tests` | Skip Forge + Rust tests |
 | `--skip-node` | Deploy + tests only; leave Anvil running |
+| `--skip-router` | Do not start sparkl-router; solo `[router].enabled = false` |
 | `--keep-anvil` | Do not stop Anvil on exit |
 | `--no-state` | Ephemeral Anvil (default persists to `.launch/anvil-state.json`) |
 | `--force-deploy` | Always run `DeployLocal` |
 | `--skip-deploy` | Never broadcast; require matching on-chain deployments |
 
-Skips `forge script` when artifact fingerprint (`.launch/deploy-fingerprint`) and on-chain bytecode/linkage match `contracts/deployments/local.json`. After launch, the script prints **sparkl-portal** `NEXT_PUBLIC_*` values and **sparkl-oracle-rates** `.env` (DOT/USD `RateSetter`; no `sparkl-oracle-model-price` service — default model price is seeded once on-chain if unset).
+Skips `forge script` when artifact fingerprint (`.launch/deploy-fingerprint`) and on-chain bytecode/linkage match `contracts/deployments/local.json`. After launch, the script writes `dev-config/launch.toml` and `dev-config/router-launch.toml`, starts **sparkl-router** (unless `--skip-router`) with `chain.enabled = true` against local Anvil contracts, starts a solo node with `[router]` tunnel enabled, and prints **sparkl-portal** `NEXT_PUBLIC_*` / router env values and **sparkl-oracle-rates** `.env` (DOT/USD `RateSetter`; no `sparkl-oracle-model-price` service — default model price is seeded once on-chain if unset).
+
+**Router WSS:** with the default local router config, the node must be **commercially registered** on portal `/node/register` before the tunnel is accepted. Use `curl http://127.0.0.1:19950/identity` for `node_id` after the node starts.
 
 Deploy-only: `cd contracts && anvil --state ../.launch/anvil-state.json &` then `forge script script/DeployLocal.s.sol:DeployLocal --rpc-url http://127.0.0.1:8545 --broadcast` (writes `contracts/deployments/local.json`).
 
@@ -75,7 +135,7 @@ Deploy-only: `cd contracts && anvil --state ../.launch/anvil-state.json &` then 
 **Provider checklist (pre–real TEE):**
 
 1. Deploy `ProviderRegistry` + `SettlementEscrow` (e.g. `[contracts/script/DeployLocal.s.sol](./contracts/script/DeployLocal.s.sol)` on Anvil, or `[contracts/script/DeployPaseo.s.sol](./contracts/script/DeployPaseo.s.sol)` on Paseo). Note `ProviderRegistry` and `**attestationService`** on deploy.
-2. From the **operator key**, call `**registerNode(nodeId, ...)`** so the node row exists (required for `setTEEProof`). `**nodeId`** is a `**bytes32**` on-chain identity (e.g. Substrate PeerId hash), **not** the operator EOA.
+2. **Commercially register** on the portal (`/node/register` → `registerNode`) so the node row exists (required for `setTEEProof` and router WSS subscription). `**nodeId`** is a `**bytes32**` from the libp2p peer id, **not** the operator EOA.
 3. Configure the stub: `RPC_URL`, `PROVIDER_REGISTRY_ADDRESS`, `ADMIN_PRIVATE_KEY` (**attestation signer** env var name is historical — it is the `**attestationService`** key). Run `yarn start` in `services/tee-attestation-stub/`.
 4. Client: `GET /v1/challenge` → operator signs `**message`** with the wallet that is `**nodeOperator(nodeId)**` → `POST /v1/attest` with `**nodeId**` (`0x` + 64 hex, the same `**bytes32**` passed to `**registerNode**`), `report` (hex stub bytes), `challengeId`, `signature`.
 5. Confirm on-chain (`supportsTier(nodeId, TEE_VERIFIED)`, `teeReportHash`) via `cast`, explorer, or your indexer.
@@ -185,7 +245,13 @@ escrow_contract = "0x0000000000000000000000000000000000000000"
 enabled = false
 ```
 
-Billing is oracle-driven: nodes report token usage deltas via `recordUsage`; `SettlementEscrow` prices sessions from `ModelPriceOracle` (see `/model` in sparkl-portal). No local `[pricing]` TOML.
+Billing is oracle-driven: `SettlementEscrow` prices sessions from `ModelPriceOracle` (see `/model` in sparkl-portal). No local `[pricing]` TOML.
+
+**Router path (default with `launch-local.sh`):** sparkl-router parses upstream `usage`, batches `recordUsage` on-chain (defaults: **10k tokens** or **60s** per session, see `[settlement]` in `dev-config/router-launch.toml`), and signs as `recordUsageRole`. On startup (when `[chain] enabled`), the router **loads or generates** a secp256k1 key in `data_dir/record-usage-key.json` (same idea as solo `identity.json`). If `settlement.registry_owner_private_key` is set (registry owner / deployer on local Anvil), it submits **`setRecordUsage(router_address)`** when the on-chain role differs. Solo skips provider `recordUsage` when `[router].enabled` and `[settlement].router_usage_metering = true`.
+
+**Direct node path:** provider `nodeOperator` submits `recordUsage` from the settlement loop.
+
+**Protocol fee:** on settle, **1%** of gross provider payout accrues to `protocolBalances` (treasury); provider net is 99%. Fund router gas from treasury via `withdrawProtocolDot`.
 
 **MVP model pricing:** one network-wide rate via `ModelPriceOracle.defaultPrice` (**10¢ input / 50¢ output per 1 million tokens**), pushed by `sparkl-oracle-model-price` with `MODEL_PRICE_SOURCES=flat`. The model name on `openSession` only identifies the session; price does not vary by model until per-model oracle rows exist (post-MVP).
 
@@ -264,9 +330,11 @@ cargo run --features mock-tpm -- --config dev-config/node2.toml
 
 ## sparkl-router tunnel (provider registration)
 
-Consumers reach your node through **sparkl-router**, not by dialing your inference port directly. Solo opens an **outbound** WebSocket to the router (`/node/connect`), signs a challenge with the node Ed25519 key, and forwards multiplexed HTTP to the local inference server.
+Consumers reach your node through **sparkl-router**, not by dialing your inference port directly. Solo opens an **outbound** WebSocket to the router (`/node/connect`), signs a challenge with the node Ed25519 key, sends **`moniker`** from `[node].moniker` (max 128 chars) on the auth frame, and forwards multiplexed HTTP to the local inference server. The portal reads monikers from router tunnel status (not from on-chain registration). **`GET /identity`** includes `moniker` for local tooling.
 
-**Configuration** (`config/default.toml` or `dev-config/*.toml`):
+**One-command stack:** `./scripts/launch-local.sh` starts sparkl-router and enables the tunnel in `dev-config/launch.toml` (skip with `--skip-router`).
+
+**Manual setup** (`config/default.toml` or `dev-config/*.toml`):
 
 ```toml
 [router]
@@ -277,17 +345,16 @@ url = "ws://127.0.0.1:3001/node/connect"   # or wss:// in production
 **CLI overrides** (win over TOML): `--router-url`, `--router-enabled`. **Env:** `SPARKLE_ROUTER__URL`, `SPARKLE_ROUTER__ENABLED`.
 
 ```bash
-# Terminal 1 — router
+# Manual: start router separately (not needed when using launch-local.sh)
 cd ../sparkl-router && cp config.example.toml config.toml && cargo run -- config.toml
 
-# Terminal 2 — node with tunnel
 cargo run --features mock-tpm -- \
   --config dev-config/node1.toml \
   --router-enabled true \
   --router-url ws://127.0.0.1:3001/node/connect
 ```
 
-For local dev, set router `[chain] enabled = false` to skip registry checks, or register the node on Anvil and use the libp2p-derived `nodeId` on-chain.
+**launch-local.sh** generates `dev-config/router-launch.toml` with `chain.enabled = true` and local Anvil contract addresses — register the node on portal `/node/register` before the WSS tunnel is accepted. For ad-hoc testing without registration, set router `[chain] enabled = false` in a custom config.
 
 **Verify:** `GET http://127.0.0.1:3001/v1/models` (aggregated) and `GET /status/nodes` with router admin bearer show the connected node as `online`.
 
@@ -439,7 +506,7 @@ Or:
 export SPARKLE__SETTLEMENT__EVM_PROVIDER_WALLET_PRIVATE_KEY=0x…
 ```
 
-After deploy, call `**registerNode(nodeId, …)**` from this wallet (via portal or `cast send`) so `msg.sender` becomes `**nodeOperator(nodeId)**`. TEE attestation must be signed with the **same** EOA (`personal_sign` on the challenge message).
+After deploy, **commercially register** on the portal (`/node/register`) so `msg.sender` becomes `**nodeOperator(nodeId)**`. TEE attestation must be signed with the **same** EOA (`personal_sign` on the challenge message). MVP: solo does not call `registerNode` at startup.
 
 Verify the address:
 

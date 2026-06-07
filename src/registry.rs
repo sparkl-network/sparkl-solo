@@ -158,11 +158,7 @@ pub async fn register(
 
         let node_id_b256 = B256::from(crate::identity::on_chain_node_id_from_identity(identity));
 
-        let metadata_uri = format!(
-            "ipfs://{}/provider/{}",
-            sha256_hex(state.peer_id.as_bytes()),
-            state.peer_id
-        );
+        let metadata_uri = String::new();
 
         let supports_tee = !state.attestation_hash.is_empty();
 
@@ -692,35 +688,28 @@ pub async fn supports_tier(
 pub const STARTUP_REGISTER_MAX_RETRIES: u32 = 3;
 pub const STARTUP_REGISTER_INITIAL_DELAY_SECS: u64 = 30;
 
-/// Issue #3: attempt on-chain registration at startup, then run the heartbeat loop (same task as `main.rs`).
+/// On-chain heartbeat loop when `registry.enabled` (MVP: commercial `registerNode` is portal-only).
 pub async fn run_registry_startup_and_heartbeat(
     identity: Arc<NodeIdentity>,
     proxy: Arc<BackendProxy>,
+    node_cfg: crate::config::NodeConfig,
+    config_models: Vec<crate::config::ModelEntryConfig>,
+    sessions: Arc<crate::session::SessionManager>,
     registry_cfg: RegistryConfig,
     settlement_cfg: SettlementConfig,
     attestation_cfg: AttestationConfig,
     nras_state: Arc<RwLock<NrasRuntimeState>>,
 ) {
-    if let Err(e) = startup_register_with_retry(
-        identity.clone(),
-        proxy.clone(),
-        registry_cfg.clone(),
-        settlement_cfg.clone(),
-        attestation_cfg.clone(),
-        nras_state.clone(),
-        STARTUP_REGISTER_MAX_RETRIES,
-        STARTUP_REGISTER_INITIAL_DELAY_SECS,
-    )
-    .await
-    {
-        tracing::error!(
-            error = %e,
-            "startup registration failed; starting heartbeat anyway"
-        );
-    }
+    tracing::info!(
+        peer_id = %identity.peer_id,
+        "registry.enabled: skipping on-chain registerNode (commercial registration is on sparkl-portal); running heartbeat only"
+    );
     run_heartbeat_loop(
         identity,
         proxy,
+        node_cfg,
+        config_models,
+        sessions,
         registry_cfg,
         settlement_cfg,
         attestation_cfg,
@@ -732,6 +721,9 @@ pub async fn run_registry_startup_and_heartbeat(
 pub async fn startup_register_with_retry(
     identity: Arc<NodeIdentity>,
     proxy: Arc<BackendProxy>,
+    node_cfg: crate::config::NodeConfig,
+    config_models: Vec<crate::config::ModelEntryConfig>,
+    sessions: Arc<crate::session::SessionManager>,
     registry: RegistryConfig,
     settlement: SettlementConfig,
     attestation: AttestationConfig,
@@ -744,13 +736,7 @@ pub async fn startup_register_with_retry(
     for attempt in 1..=max_retries {
         info!(attempt, max_retries, "starting registration attempt");
 
-        let models = proxy
-            .list_models()
-            .await
-            .unwrap_or_default()
-            .into_iter()
-            .map(|m| m.id)
-            .collect::<Vec<_>>();
+        let models = published_model_ids(&proxy, &node_cfg, &config_models).await;
 
         let attestation_hash =
             refresh_nras_tee_report_hash(&attestation, Some(identity.peer_id.clone()), nras_state.clone())
@@ -797,9 +783,24 @@ pub async fn startup_register_with_retry(
     ))
 }
 
+async fn published_model_ids(
+    proxy: &BackendProxy,
+    node_cfg: &crate::config::NodeConfig,
+    config_models: &[crate::config::ModelEntryConfig],
+) -> Vec<String> {
+    let admission = crate::capacity::ModelAdmission::new();
+    crate::models::build_catalog(proxy, config_models, node_cfg, &admission)
+        .await
+        .map(|catalog| crate::models::catalog_ids(&catalog))
+        .unwrap_or_default()
+}
+
 pub async fn run_heartbeat_loop(
     identity: Arc<NodeIdentity>,
     proxy: Arc<BackendProxy>,
+    node_cfg: crate::config::NodeConfig,
+    config_models: Vec<crate::config::ModelEntryConfig>,
+    _sessions: Arc<crate::session::SessionManager>,
     registry_cfg: RegistryConfig,
     settlement_cfg: SettlementConfig,
     attestation_cfg: AttestationConfig,
@@ -816,13 +817,8 @@ pub async fn run_heartbeat_loop(
     );
 
     loop {
-        let models = proxy
-            .list_models()
-            .await
-            .unwrap_or_default()
-            .into_iter()
-            .map(|m| m.id)
-            .collect::<Vec<_>>();
+        let models =
+            published_model_ids(&proxy, &node_cfg, &config_models).await;
 
         let attestation_hash =
             refresh_nras_tee_report_hash(&attestation_cfg, Some(identity.peer_id.clone()), nras_state.clone())
@@ -918,11 +914,15 @@ mod tests {
 
     use super::*;
     use crate::attestation::NrasRuntimeState;
-    use crate::config::{AttestationConfig, BackendConfig, RegistryConfig, SettlementConfig};
+    use crate::config::{
+        AttestationConfig, BackendConfig, NodeConfig, NodeMode, RegistryConfig, SettlementConfig,
+    };
     use crate::identity::{
         on_chain_node_id_from_identity, on_chain_node_id_from_libp2p_peer_id, NodeIdentity,
     };
     use crate::proxy::BackendProxy;
+    use crate::session::SessionManager;
+    use crate::store::Store;
     use tokio::sync::RwLock;
 
     fn test_identity() -> Arc<NodeIdentity> {
@@ -943,6 +943,31 @@ mod tests {
             })
             .expect("backend proxy"),
         )
+    }
+
+    fn test_node_config() -> NodeConfig {
+        NodeConfig {
+            moniker: "test".to_string(),
+            data_dir: std::env::temp_dir().join("sparkl-registry-test"),
+            log_level: "info".to_string(),
+            mode: NodeMode::Solo,
+            receipt_cadence_tokens: 1,
+            include_models: vec![],
+            exclude_models: vec![],
+            session_security_tier: crate::session::SecurityTier::BestEffort,
+        }
+    }
+
+    fn test_sessions() -> Arc<SessionManager> {
+        let dir = std::env::temp_dir().join(format!(
+            "sparkl-registry-test-store-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let store = Arc::new(Store::open(&dir).expect("store"));
+        Arc::new(SessionManager::new(store))
     }
 
     fn test_registry_config(enabled: bool) -> RegistryConfig {
@@ -967,6 +992,7 @@ mod tests {
             tee_settle_tokens_threshold: 1,
             tee_settle_every_n_blocks: 0,
             session_min_deposit: 1_000_000_000_000_000_000,
+            router_usage_metering: true,
         }
     }
 
@@ -1006,6 +1032,9 @@ mod tests {
         let proof = startup_register_with_retry(
             test_identity(),
             test_proxy(),
+            test_node_config(),
+            vec![],
+            test_sessions(),
             test_registry_config(false),
             test_settlement_config(),
             test_attestation_config(),
@@ -1025,6 +1054,9 @@ mod tests {
         let proof = startup_register_with_retry(
             test_identity(),
             test_proxy(),
+            test_node_config(),
+            vec![],
+            test_sessions(),
             test_registry_config(true),
             test_settlement_config(),
             test_attestation_config(),
@@ -1043,6 +1075,9 @@ mod tests {
         let err = startup_register_with_retry(
             test_identity(),
             test_proxy(),
+            test_node_config(),
+            vec![],
+            test_sessions(),
             test_registry_config(true),
             test_settlement_config(),
             test_attestation_config(),
@@ -1064,6 +1099,9 @@ mod tests {
         run_registry_startup_and_heartbeat(
             test_identity(),
             test_proxy(),
+            test_node_config(),
+            vec![],
+            test_sessions(),
             test_registry_config(false),
             test_settlement_config(),
             test_attestation_config(),
@@ -1083,6 +1121,9 @@ mod tests {
             run_registry_startup_and_heartbeat(
                 test_identity(),
                 test_proxy(),
+                test_node_config(),
+                vec![],
+                test_sessions(),
                 test_registry_config(true),
                 test_settlement_config(),
                 test_attestation_config(),

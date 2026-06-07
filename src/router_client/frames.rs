@@ -12,6 +12,8 @@ pub enum NodeToRouterFrame {
         signature: String,
         #[serde(default)]
         ed25519_pubkey: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        moniker: Option<String>,
     },
     Pong,
     Response {
@@ -89,5 +91,22 @@ mod tests {
         let json = r#"{"type":"challenge","nonce":"ab","block":1}"#;
         let f: RouterToNodeFrame = serde_json::from_str(json).unwrap();
         assert!(matches!(f, RouterToNodeFrame::Challenge { .. }));
+    }
+
+    #[test]
+    fn auth_roundtrip_with_moniker() {
+        let frame = NodeToRouterFrame::Auth {
+            node_id: "0xabc".into(),
+            signature: "0xsig".into(),
+            ed25519_pubkey: Some("pk".into()),
+            moniker: Some("my-node".into()),
+        };
+        let json = frame.to_json().unwrap();
+        assert!(json.contains("moniker"));
+        let parsed: NodeToRouterFrame = serde_json::from_str(&json).unwrap();
+        match parsed {
+            NodeToRouterFrame::Auth { moniker, .. } => assert_eq!(moniker.as_deref(), Some("my-node")),
+            _ => panic!("expected auth"),
+        }
     }
 }

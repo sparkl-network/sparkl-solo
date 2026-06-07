@@ -1,5 +1,5 @@
 [node]
-name = "sparkl-solo"
+moniker = "sparkl-solo"
 data_dir = "./.sparkl-data"
 log_level = "info"
 mode = "solo"
@@ -25,6 +25,7 @@ inference_port = 9944
 # list of bootstrap peers to dial
 bootstrap_peers = [
   "/dns/boot.sparkl.network/tcp/51993/p2p/12D3KooWMr6gHBiC55poCBDRV9NcXcEfFjv4jEzA9s3cM81RyYmX",
+  "/ip4/192.168.10.200/tcp/30333/p2p/12D3KooWNCy3VRmnCLnYXFXoUwCbc75oTgNoNauKtz55CmqRtH8v",
   "/dns/boot.sparkl.network/tcp/52003/p2p/12D3KooWMHkKisRr7jhXUtpN1qasUwZmLZwsU8cEQ1Hb75LhS2xL"
 ]
 # allow non-global addresses to be inserted into DHT
@@ -38,6 +39,14 @@ url = "http://127.0.0.1:1234/v1"
 health_path = "/health"
 models_path = "/v1/models"
 timeout_secs = 120
+
+[[models]]
+id = "qwen/qwen3.6-27b"          # must match backend /v1/models id
+quantization = "Q4_K_M"
+parameter_count = "27B"
+context_size = 128000
+concurrency = 4
+source_url = "https://huggingface.co/Qwen/Qwen3.6-27B"
 
 [attestation]
 nras_url = "https://nras.attestation.nvidia.com"
@@ -55,6 +64,7 @@ registry_contract_address = "0x0000000000000000000000000000000000000000"
 # Optional: JSON-RPC URL for registry only. Empty = use settlement.evm_rpc_url.
 evm_rpc_url = ""
 heartbeat_secs = 30
+# MVP: commercial registerNode is on sparkl-portal only. When true, solo runs on-chain heartbeat/TEE only (no startup registerNode).
 enabled = false
 
 [settlement]
@@ -83,11 +93,16 @@ tee_settle_every_n_blocks = 0
 session_min_deposit = 1000000000000000000
 
 [router]
-# Dial sparkl-router outbound WSS tunnel (provider registers for consumer traffic).
-enabled = false
+# Dial sparkl-router outbound WSS tunnel (provider WSS subscription for consumer traffic).
+enabled = true
 # Full WebSocket URL; override with --router-url or SPARKLE_ROUTER__URL.
-url = "wss://api.sparkl.network/node/connect"
+#url = "wss://api.sparkl.network/node/connect"
+url = "ws://localhost:3001/node/connect"
 reconnect_min_secs = 1
 reconnect_max_secs = 60
 # Empty → http://127.0.0.1:{network.inference_port}
 local_inference_base = ""
+
+[capacity]
+queue_depth_ratio = 1.0
+queue_wait_timeout_secs = 60

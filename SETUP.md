@@ -83,7 +83,7 @@ enabled = false
 
 ## 4) Config options reference
 
-- `node.name`: operator-friendly node name for logs/ops.
+- `node.moniker`: operator-facing label (max 128 chars) for logs, portal directory, and router tunnel status. Legacy configs may use `name` (serde alias).
 - `node.data_dir`: persistent state (identity keys, local DB); back this up.
 - `node.log_level`: typically `info` in production.
 - `node.mode`: currently `solo`.
@@ -146,7 +146,7 @@ Run with config:
 Available CLI overrides (grouped by config section):
 
 - `node.*`
-  - `--name`
+  - `--moniker` (alias: `--name`)
   - `--data-dir`
   - `--log-level`
   - `--mode` (`solo|farm`)

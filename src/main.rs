@@ -97,10 +97,16 @@ async fn main() -> Result<()> {
         let settlement_cfg = cfg.settlement.clone();
         let attestation_cfg = cfg.attestation.clone();
         let nr = nras_state.clone();
+        let node_cfg = cfg.node.clone();
+        let config_models = cfg.models.clone();
+        let sessions_arc = sessions.clone();
         tokio::spawn(async move {
             registry::run_registry_startup_and_heartbeat(
                 identity_loop,
                 proxy_arc,
+                node_cfg,
+                config_models,
+                sessions_arc,
                 registry_cfg,
                 settlement_cfg,
                 attestation_cfg,
@@ -131,8 +137,16 @@ async fn main() -> Result<()> {
         let store_arc = store.clone();
         let identity_arc = Arc::new(identity.clone());
         let settlement_cfg = cfg.settlement.clone();
+        let router_cfg = cfg.router.clone();
         tokio::spawn(async move {
-            settlement::run_epoch_loop(session_arc, store_arc, identity_arc, settlement_cfg).await;
+            settlement::run_epoch_loop(
+                session_arc,
+                store_arc,
+                identity_arc,
+                settlement_cfg,
+                router_cfg,
+            )
+            .await;
         });
     }
 
@@ -149,6 +163,7 @@ async fn main() -> Result<()> {
         identity: identity.clone(),
         proxy,
         sessions,
+        admission: sparkl_solo::capacity::ModelAdmission::new(),
         swarm_cmd: Some(swarm_cmd),
         started_at: Utc::now(),
         nras_state,
@@ -296,7 +311,7 @@ fn resolve_rotation_operator_key(
 
 struct CliArgs {
     config_path: Option<PathBuf>,
-    node_name: Option<String>,
+    node_moniker: Option<String>,
     data_dir: Option<PathBuf>,
     log_level: Option<String>,
     mode: Option<String>,
@@ -338,7 +353,7 @@ where
 {
     let mut out = CliArgs {
         config_path: None,
-        node_name: None,
+        node_moniker: None,
         data_dir: None,
         log_level: None,
         mode: None,
@@ -391,7 +406,8 @@ where
                     .map_err(|_| anyhow!("invalid --receipt-cadence value: `{value}`"))?;
                 out.receipt_cadence_tokens = Some(parsed.max(1));
             }
-            "--name" => out.node_name = Some(required_value(&mut args, "--name")?),
+            "--moniker" => out.node_moniker = Some(required_value(&mut args, "--moniker")?),
+            "--name" => out.node_moniker = Some(required_value(&mut args, "--name")?),
             "--data-dir" => {
                 out.data_dir = Some(PathBuf::from(required_value(&mut args, "--data-dir")?))
             }
@@ -545,8 +561,8 @@ where
 }
 
 fn apply_cli_overrides(cfg: &mut config::Config, cli: &CliArgs) -> Result<()> {
-    if let Some(v) = &cli.node_name {
-        cfg.node.name = v.clone();
+    if let Some(v) = &cli.node_moniker {
+        cfg.node.moniker = sparkl_solo::metadata_uri::normalize_moniker(v)?;
     }
     if let Some(v) = &cli.data_dir {
         cfg.node.data_dir = v.clone();
